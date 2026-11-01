@@ -20,6 +20,8 @@ import { OfflineBanner } from "@/components/common/OfflineBanner";
 import { PwaReloadPrompt } from "@/components/common/PwaReloadPrompt";
 import { DialogA11y } from "@/components/common/DialogA11y";
 import { BrandLogo } from "@/components/brand/BrandLogo";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { UserNavDropdown } from "@/components/layout/UserNavDropdown";
 
 export const AppLayout: React.FC = () => {
   const { user, isStaff } = useAuth();
@@ -145,7 +147,10 @@ export const AppLayout: React.FC = () => {
               <span>{isLowData ? "ON" : "OFF"}</span>
             </button>
 
-            {/* Post Listing / Dashboard Link */}
+            {/* Notification Bell (Signed-in users) */}
+            {user && <NotificationBell />}
+
+            {/* User Profile / Navigation */}
             {user ? (
               <div className="flex items-center gap-1.5 sm:gap-2">
                 <Link
@@ -155,19 +160,12 @@ export const AppLayout: React.FC = () => {
                   <Plus className="w-4 h-4" />
                   <span>Post Listing</span>
                 </Link>
-                <Link
-                  to="/dashboard"
-                  aria-label="My Account"
-                  title="My Account"
-                  className="hidden md:inline-flex items-center justify-center w-11 h-11 rounded-full border border-border bg-surface hover:bg-slate-100 dark:hover:bg-slate-800 text-foreground transition-colors shrink-0"
-                >
-                  <User className="w-4.5 h-4.5" />
-                </Link>
+                <UserNavDropdown />
               </div>
             ) : (
               <Link
                 to="/login"
-                className="hidden sm:inline-flex items-center justify-center px-4 py-2 bg-brand-700 hover:bg-brand-900 text-white text-xs font-bold rounded-lg shadow-xs transition-colors min-h-[44px] shrink-0"
+                className="inline-flex items-center justify-center px-4 py-2 bg-brand-700 hover:bg-brand-900 text-white text-xs font-bold rounded-lg shadow-xs transition-colors min-h-[44px] shrink-0"
               >
                 Sign In
               </Link>
@@ -210,6 +208,8 @@ export const AppLayout: React.FC = () => {
                   {user ? (
                     <>
                       <Link to="/dashboard" className="hover:text-brand-700 dark:hover:text-brand-300">Dashboard</Link>
+                      <Link to="/dashboard/settings" className="hover:text-brand-700 dark:hover:text-brand-300">Profile & Settings</Link>
+                      <Link to="/dashboard/favourites" className="hover:text-brand-700 dark:hover:text-brand-300">Saved Favourites</Link>
                       <Link to="/dashboard/accommodation" className="hover:text-brand-700 dark:hover:text-brand-300">My Listings</Link>
                     </>
                   ) : (

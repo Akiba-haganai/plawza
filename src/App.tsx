@@ -25,10 +25,17 @@ const ShopDetail = lazy(() =>
 );
 const Login = lazy(() => import("@/pages/Login").then((m) => ({ default: m.Login })));
 const Register = lazy(() => import("@/pages/Register").then((m) => ({ default: m.Register })));
+const PublicProfile = lazy(() => import("@/pages/PublicProfile").then((m) => ({ default: m.PublicProfile })));
 
 // Dashboard routes (Protected)
 const DashboardOverview = lazy(() =>
   import("@/pages/dashboard/DashboardOverview").then((m) => ({ default: m.DashboardOverview }))
+);
+const DashboardSettings = lazy(() =>
+  import("@/pages/dashboard/DashboardSettings").then((m) => ({ default: m.DashboardSettings }))
+);
+const DashboardFavourites = lazy(() =>
+  import("@/pages/dashboard/DashboardFavourites").then((m) => ({ default: m.DashboardFavourites }))
 );
 const DashboardAccommodation = lazy(() =>
   import("@/pages/dashboard/DashboardAccommodation").then((m) => ({ default: m.DashboardAccommodation }))
@@ -64,84 +71,101 @@ export const App: React.FC = () => {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<AppLayout />}>
-              {/* Public Discovery Routes */}
-              <Route index element={<Home />} />
-              <Route path="accommodation" element={<AccommodationList />} />
-              <Route path="accommodation/:id" element={<AccommodationDetail />} />
-              <Route path="roommates" element={<RoommatesList />} />
-              <Route path="shops" element={<ShopsList />} />
-              <Route path="shops/:slug" element={<ShopDetail />} />
-              <Route path="login" element={<Login />} />
-              <Route path="register" element={<Register />} />
-              <Route path="reset-password" element={<ResetPassword />} />
-              <Route path="terms" element={<Terms />} />
-              <Route path="privacy" element={<Privacy />} />
-              <Route path="copyright" element={<Copyright />} />
+            {/* Public Discovery Routes */}
+            <Route index element={<Home />} />
+            <Route path="accommodation" element={<AccommodationList />} />
+            <Route path="accommodation/:id" element={<AccommodationDetail />} />
+            <Route path="roommates" element={<RoommatesList />} />
+            <Route path="shops" element={<ShopsList />} />
+            <Route path="shops/:slug" element={<ShopDetail />} />
+            <Route path="u/:id" element={<PublicProfile />} />
+            <Route path="login" element={<Login />} />
+            <Route path="register" element={<Register />} />
+            <Route path="reset-password" element={<ResetPassword />} />
+            <Route path="terms" element={<Terms />} />
+            <Route path="privacy" element={<Privacy />} />
+            <Route path="copyright" element={<Copyright />} />
 
-              {/* Protected Dashboard Routes */}
-              <Route
-                path="dashboard"
-                element={
-                  <ProtectedRoute>
-                    <DashboardOverview />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="dashboard/accommodation"
-                element={
-                  <ProtectedRoute>
-                    <DashboardAccommodation />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="dashboard/roommates"
-                element={
-                  <ProtectedRoute>
-                    <DashboardRoommates />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="dashboard/businesses"
-                element={
-                  <ProtectedRoute>
-                    <DashboardBusinesses />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="dashboard/enquiries"
-                element={
-                  <ProtectedRoute>
-                    <DashboardEnquiries />
-                  </ProtectedRoute>
-                }
-              />
+            {/* Protected Dashboard Routes */}
+            <Route
+              path="dashboard"
+              element={
+                <ProtectedRoute>
+                  <DashboardOverview />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="dashboard/settings"
+              element={
+                <ProtectedRoute>
+                  <DashboardSettings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="dashboard/favourites"
+              element={
+                <ProtectedRoute>
+                  <DashboardFavourites />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="dashboard/accommodation"
+              element={
+                <ProtectedRoute>
+                  <DashboardAccommodation />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="dashboard/roommates"
+              element={
+                <ProtectedRoute>
+                  <DashboardRoommates />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="dashboard/businesses"
+              element={
+                <ProtectedRoute>
+                  <DashboardBusinesses />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="dashboard/enquiries"
+              element={
+                <ProtectedRoute>
+                  <DashboardEnquiries />
+                </ProtectedRoute>
+              }
+            />
 
-              {/* Protected Staff Moderation Routes */}
-              <Route
-                path="admin"
-                element={
-                  <AdminRoute>
-                    <AdminModeration />
-                  </AdminRoute>
-                }
-              />
-              <Route
-                path="admin/reports"
-                element={
-                  <AdminRoute>
-                    <AdminReports />
-                  </AdminRoute>
-                }
-              />
+            {/* Protected Staff Moderation Routes */}
+            <Route
+              path="admin"
+              element={
+                <AdminRoute>
+                  <AdminModeration />
+                </AdminRoute>
+              }
+            />
+            <Route
+              path="admin/reports"
+              element={
+                <AdminRoute>
+                  <AdminReports />
+                </AdminRoute>
+              }
+            />
 
-              {/* 404 Fallback */}
-              <Route path="*" element={<NotFound />} />
-            </Route>
-          </Routes>
+            {/* 404 Fallback */}
+            <Route path="*" element={<NotFound />} />
+          </Route>
+        </Routes>
       </BrowserRouter>
     </AuthProvider>
   );

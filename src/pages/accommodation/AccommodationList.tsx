@@ -14,11 +14,13 @@ import {
   Droplets,
   BatteryCharging,
   AlertTriangle,
-  Bookmark
+  Bookmark,
+  Heart
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useReferenceData } from "@/hooks/useReferenceData";
+import { useFavourites } from "@/hooks/useFavourites";
 import { LISTING_TYPES, AMENITIES_VOCABULARY } from "@/lib/constants";
 import { getPublicStorageUrl } from "@/lib/storage";
 import { isStaleConfirmation } from "@/lib/differentiators";
@@ -75,6 +77,7 @@ interface SavedFilterData {
 
 export const AccommodationList: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { isFavourited, toggleFavourite } = useFavourites();
   const { towns, campuses } = useReferenceData();
 
   // Filters from URL query params (default sort: confirmed-recently first)
@@ -544,6 +547,23 @@ export const AccommodationList: React.FC = () => {
                   <div>
                     {/* Property Image with Low-Data Support */}
                     <div className="relative">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          toggleFavourite("listing", item.id);
+                        }}
+                        aria-label={isFavourited("listing", item.id) ? "Remove from favourites" : "Save to favourites"}
+                        title={isFavourited("listing", item.id) ? "Remove from favourites" : "Save to favourites"}
+                        className={`absolute top-2.5 left-2.5 z-10 p-2 rounded-full backdrop-blur-xs transition-transform active:scale-90 shadow-xs cursor-pointer ${
+                          isFavourited("listing", item.id)
+                            ? "bg-white text-rose-500 fill-rose-500 shadow-sm"
+                            : "bg-surface/85 text-muted hover:text-rose-500 hover:bg-white"
+                        }`}
+                      >
+                        <Heart className={`w-4 h-4 ${isFavourited("listing", item.id) ? "fill-rose-500 text-rose-500" : ""}`} />
+                      </button>
                       <LazyImage
                         src={imageUrl}
                         alt={item.title}

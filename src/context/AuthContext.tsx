@@ -27,6 +27,8 @@ interface AuthContextType {
   ) => Promise<{ error: Error | null; needsEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  updateProfile: (updates: Partial<Profile>) => Promise<{ error: Error | null }>;
+  uploadAvatar: (file: File) => Promise<{ error: Error | null; path?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -47,22 +49,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ]);
 
       if (profileRes.data) {
+        let currentProf = profileRes.data;
         const metaName =
           (currentUser.user_metadata?.full_name as string | undefined)?.trim() ||
           (currentUser.user_metadata?.name as string | undefined)?.trim();
+        const metaAvatar =
+          (currentUser.user_metadata?.avatar_url as string | undefined)?.trim() ||
+          (currentUser.user_metadata?.picture as string | undefined)?.trim();
 
-        // Backfill full_name from Google OAuth metadata if the profile doesn't have one yet
-        if (!profileRes.data.full_name && metaName) {
+        // Auto-backfill name and avatar from Google OAuth if empty
+        const updatesToApply: Partial<Profile> = {};
+        if (!currentProf.full_name && metaName) {
+          updatesToApply.full_name = metaName.slice(0, 100);
+        }
+        if (!currentProf.avatar_path && !currentProf.avatar_url && metaAvatar) {
+          updatesToApply.avatar_url = metaAvatar.slice(0, 1000);
+        }
+
+        if (Object.keys(updatesToApply).length > 0) {
           const { data: updatedProfile } = await supabase
             .from("profiles")
-            .update({ full_name: metaName.slice(0, 100) })
+            .update(updatesToApply)
             .eq("id", currentUser.id)
             .select("*")
             .maybeSingle();
-          setProfile(updatedProfile ?? profileRes.data);
-        } else {
-          setProfile(profileRes.data);
+          if (updatedProfile) {
+            currentProf = updatedProfile;
+          }
         }
+        setProfile(currentProf);
       } else {
         setProfile(null);
       }
@@ -139,7 +154,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
-    // 2. Single subscription to auth state changes (skip INITIAL_SESSION since getSession handles it)
+    // 2. Single subscription to auth state changes
     const {
       data: { subscription }
     } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -214,7 +229,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
-    // Supabase returns an empty identities array when email confirmation is on and the email is already registered
     if (!error && data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
       return {
         error: new Error("An account with this email already exists. Please sign in instead."),
@@ -240,6 +254,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateProfile = async (updates: Partial<Profile>) => {
+    if (!user) return { error: new Error("Not authenticated") };
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .update(updates)
+        .eq("id", user.id)
+        .select("*")
+        .single();
+      if (error) return { error };
+      setProfile(data);
+      return { error: null };
+    } catch (err) {
+      return { error: err as Error };
+    }
+  };
+
+  const uploadAvatar = async (file: File) => {
+    if (!user) return { error: new Error("Not authenticated") };
+    try {
+      const { compressImage } = await import("@/lib/imageCompression");
+      const { blob } = await compressImage(file, 400, 400, 0.85);
+      const fileName = `${user.id}/avatar-${Date.now()}.webp`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(fileName, blob, {
+          contentType: "image/webp",
+          upsert: true
+        });
+      if (uploadError) return { error: uploadError };
+
+      const { error: updateError } = await updateProfile({
+        avatar_path: fileName
+      });
+      if (updateError) return { error: updateError };
+
+      return { error: null, path: fileName };
+    } catch (err) {
+      return { error: err as Error };
+    }
+  };
+
   const isStaff = staffRole === "admin" || staffRole === "moderator";
   const isAdmin = staffRole === "admin";
 
@@ -257,7 +314,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         signInWithGoogle,
         signUp,
         signOut,
-        refreshProfile
+        refreshProfile,
+        updateProfile,
+        uploadAvatar
       }}
     >
       {children}

@@ -6,6 +6,7 @@ import {
   Search,
   MapPin,
   Clock,
+  Heart,
   MessageCircle,
   Phone,
   ArrowRight,
@@ -15,6 +16,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { useReferenceData } from "@/hooks/useReferenceData";
+import { useFavourites } from "@/hooks/useFavourites";
 import { whatsAppUrl } from "@/lib/phone";
 import { getPublicStorageUrl } from "@/lib/storage";
 import { isBusinessOpenNow } from "@/lib/businessHours";
@@ -43,6 +45,7 @@ interface BusinessItem {
 }
 
 export const ShopsList: React.FC = () => {
+  const { isFavourited, toggleFavourite } = useFavourites();
   const { user } = useAuth();
   const { towns, categories } = useReferenceData();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -229,6 +232,23 @@ export const ShopsList: React.FC = () => {
                 <div>
                   {/* Cover Header */}
                   <div className="relative h-28 bg-gradient-to-r from-brand-900 to-brand-950 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        toggleFavourite("business", biz.id);
+                      }}
+                      aria-label={isFavourited("business", biz.id) ? "Remove from favourites" : "Save to favourites"}
+                      title={isFavourited("business", biz.id) ? "Remove from favourites" : "Save to favourites"}
+                      className={`absolute top-2.5 left-2.5 z-10 p-2 rounded-full backdrop-blur-xs transition-transform active:scale-90 shadow-xs cursor-pointer ${
+                        isFavourited("business", biz.id)
+                          ? "bg-white text-rose-500 fill-rose-500 shadow-sm"
+                          : "bg-surface/85 text-muted hover:text-rose-500 hover:bg-white"
+                      }`}
+                    >
+                      <Heart className={`w-4 h-4 ${isFavourited("business", biz.id) ? "fill-rose-500 text-rose-500" : ""}`} />
+                    </button>
                     {coverUrl ? (
                       <img src={coverUrl} alt="" className="w-full h-full object-cover opacity-85" />
                     ) : (

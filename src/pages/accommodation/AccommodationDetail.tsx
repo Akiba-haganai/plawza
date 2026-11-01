@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
+import { useFavourites } from "@/hooks/useFavourites";
 import { whatsAppUrl } from "@/lib/phone";
 import { getPublicStorageUrl } from "@/lib/storage";
 import { LISTING_TYPES, AMENITIES_VOCABULARY, UTILITIES_VOCABULARY, REPORT_REASONS } from "@/lib/constants";
@@ -69,6 +70,7 @@ interface ListingDetail {
 export const AccommodationDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const { isFavourited, toggleFavourite } = useFavourites();
 
   const [listing, setListing] = useState<ListingDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -402,6 +404,20 @@ export const AccommodationDetail: React.FC = () => {
           </button>
 
           {/* WhatsApp Share Button (Phase 7 differentiator) */}
+          <button
+            type="button"
+            onClick={() => listing && toggleFavourite("listing", listing.id)}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border text-xs font-bold transition-colors min-h-[44px] cursor-pointer ${
+              listing && isFavourited("listing", listing.id)
+                ? "border-rose-300 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300"
+                : "border-border bg-surface hover:bg-slate-100 text-foreground"
+            }`}
+            title={listing && isFavourited("listing", listing.id) ? "Remove from favourites" : "Save to favourites"}
+          >
+            <Heart className={`w-4 h-4 ${listing && isFavourited("listing", listing.id) ? "fill-rose-500 text-rose-500" : ""}`} />
+            <span>{listing && isFavourited("listing", listing.id) ? "Saved" : "Save"}</span>
+          </button>
+
           <a
             href={buildWhatsAppShareUrl(
               listing.title,

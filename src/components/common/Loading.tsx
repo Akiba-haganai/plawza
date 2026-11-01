@@ -1,5 +1,6 @@
 import React from "react";
 import { Loader2 } from "lucide-react";
+import { BrandSymbol } from "@/components/brand/BrandLogo";
 
 interface LoadingProps {
   message?: string;
@@ -14,7 +15,13 @@ export const Loading: React.FC<LoadingProps> = ({
 }) => {
   const content = (
     <div className={`flex flex-col items-center justify-center p-8 text-center ${className}`} role="status">
-      <Loader2 className="w-8 h-8 text-brand-700 animate-spin mb-3" />
+      {fullScreen ? (
+        <div className="relative mb-4">
+          <BrandSymbol sizePx={48} className="animate-pulse" />
+        </div>
+      ) : (
+        <Loader2 className="w-8 h-8 text-brand-700 animate-spin mb-3" />
+      )}
       <p className="text-sm text-muted font-medium">{message}</p>
       <span className="sr-only">Loading content, please wait...</span>
     </div>

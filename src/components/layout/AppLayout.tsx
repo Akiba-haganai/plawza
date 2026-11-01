@@ -1,5 +1,6 @@
-import React from "react";
+import React, { Suspense } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Loading } from "@/components/common/Loading";
 import {
   Home,
   Building2,
@@ -8,17 +9,22 @@ import {
   User,
   Zap,
   ShieldCheck,
-  Plus
+  Plus,
+  Sun,
+  Moon
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useDataModeStore } from "@/stores/dataMode";
+import { useThemeStore } from "@/stores/theme";
 import { OfflineBanner } from "@/components/common/OfflineBanner";
 import { PwaReloadPrompt } from "@/components/common/PwaReloadPrompt";
 import { DialogA11y } from "@/components/common/DialogA11y";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 
 export const AppLayout: React.FC = () => {
   const { user, isStaff } = useAuth();
   const { isLowData, toggleLowData } = useDataModeStore();
+  const { isDark, toggleTheme } = useThemeStore();
   const location = useLocation();
 
   const navItems = [
@@ -37,26 +43,21 @@ export const AppLayout: React.FC = () => {
 
       {/* Main Header */}
       <header className="sticky top-0 z-40 w-full border-b border-border bg-surface/95 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 h-15 flex items-center justify-between gap-3">
-          {/* Logo & Pilot Badge */}
-          <div className="flex items-center gap-3">
-            <Link to="/" className="flex items-center gap-2 group">
-              <div className="w-11 h-11 rounded-xl bg-brand-700 flex items-center justify-center text-white font-black text-lg shadow-sm group-hover:bg-brand-900 transition-colors">
-                P
-              </div>
-              <div className="flex flex-col">
-                <span className="font-black text-lg tracking-tight text-brand-950 dark:text-brand-100 leading-none">
-                  PLAWZA
-                </span>
-                <span className="text-[10px] font-semibold text-accent-700 dark:text-accent-400 leading-none mt-0.5">
-                  Stays, roommates and shops
-                </span>
-              </div>
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-4">
+          {/* Brand Logo */}
+          <div className="flex items-center shrink-0">
+            <Link to="/" className="flex items-center group transition-transform active:scale-95" aria-label="PLAWZA Home">
+              <span className="sm:hidden">
+                <BrandLogo variant="full" size="sm" theme={isDark ? "white" : "color"} />
+              </span>
+              <span className="hidden sm:inline-flex">
+                <BrandLogo variant="full" size="md" theme={isDark ? "white" : "color"} />
+              </span>
             </Link>
           </div>
 
           {/* Desktop Navigation Links */}
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden md:flex items-center gap-1 lg:gap-2">
             <NavLink
               to="/accommodation"
               className={({ isActive }) =>
@@ -67,7 +68,7 @@ export const AppLayout: React.FC = () => {
                 }`
               }
             >
-              Accommodation
+              Stays
             </NavLink>
             <NavLink
               to="/roommates"
@@ -91,7 +92,7 @@ export const AppLayout: React.FC = () => {
                 }`
               }
             >
-              Local Shops
+              Shops
             </NavLink>
             {isStaff && (
               <NavLink
@@ -111,13 +112,28 @@ export const AppLayout: React.FC = () => {
           </nav>
 
           {/* Header Action Controls */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            {/* Theme Toggle Button */}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              title={isDark ? "Switch to light theme" : "Switch to dark theme"}
+              aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
+              className="inline-flex items-center justify-center w-11 h-11 rounded-full border border-border bg-surface hover:bg-slate-100 dark:hover:bg-slate-800 text-foreground transition-colors shrink-0"
+            >
+              {isDark ? (
+                <Sun className="w-4.5 h-4.5 text-amber-400" />
+              ) : (
+                <Moon className="w-4.5 h-4.5 text-brand-700" />
+              )}
+            </button>
+
             {/* Low-Data Mode Toggle Button */}
             <button
               type="button"
               onClick={toggleLowData}
               title={isLowData ? "Low-data mode is ON. Tap to load standard images." : "Turn on Low-Data mode to save mobile data"}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-bold border transition-colors min-h-[44px] ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-colors min-h-[44px] shrink-0 ${
                 isLowData
                   ? "bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/80 dark:text-amber-200 dark:border-amber-700"
                   : "bg-surface text-muted border-border hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -125,23 +141,33 @@ export const AppLayout: React.FC = () => {
               aria-pressed={isLowData}
             >
               <Zap className={`w-3.5 h-3.5 ${isLowData ? "fill-amber-500 text-amber-600" : ""}`} />
-              <span className="hidden sm:inline">Data Saver:</span>
+              <span className="hidden md:inline">Data Saver:</span>
               <span>{isLowData ? "ON" : "OFF"}</span>
             </button>
 
             {/* Post Listing / Dashboard Link */}
             {user ? (
-              <Link
-                to="/dashboard/accommodation"
-                className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 bg-accent-700 hover:bg-accent-500 text-white text-xs font-bold rounded-lg shadow-xs transition-colors min-h-[44px]"
-              >
-                <Plus className="w-4 h-4" />
-                Post Listing
-              </Link>
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <Link
+                  to="/dashboard/accommodation"
+                  className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 bg-accent-700 hover:bg-accent-500 text-white text-xs font-bold rounded-lg shadow-xs transition-colors min-h-[44px] shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Post Listing</span>
+                </Link>
+                <Link
+                  to="/dashboard"
+                  aria-label="My Account"
+                  title="My Account"
+                  className="hidden md:inline-flex items-center justify-center w-11 h-11 rounded-full border border-border bg-surface hover:bg-slate-100 dark:hover:bg-slate-800 text-foreground transition-colors shrink-0"
+                >
+                  <User className="w-4.5 h-4.5" />
+                </Link>
+              </div>
             ) : (
               <Link
                 to="/login"
-                className="hidden sm:inline-flex items-center justify-center px-4 py-2 bg-brand-700 hover:bg-brand-900 text-white text-xs font-bold rounded-lg shadow-xs transition-colors min-h-[44px]"
+                className="hidden sm:inline-flex items-center justify-center px-4 py-2 bg-brand-700 hover:bg-brand-900 text-white text-xs font-bold rounded-lg shadow-xs transition-colors min-h-[44px] shrink-0"
               >
                 Sign In
               </Link>
@@ -152,8 +178,66 @@ export const AppLayout: React.FC = () => {
 
       {/* Main Page Content */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-4 sm:py-6">
-        <Outlet />
+        <Suspense fallback={<Loading message="Loading..." />}>
+          <Outlet />
+        </Suspense>
       </main>
+
+      {/* App Footer */}
+      <footer className="w-full border-t border-border bg-surface text-foreground mt-auto">
+        <div className="max-w-7xl mx-auto px-4 py-8 sm:py-12 space-y-6">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+            <div className="space-y-2 max-w-sm">
+              <BrandLogo variant="full" size="sm" theme={isDark ? "white" : "color"} showTagline={true} />
+              <p className="text-xs text-muted leading-relaxed">
+                The open digital plaza for Zambia. Discover verified accommodation, find trusted roommates, and explore local campus businesses.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-x-8 gap-y-4 text-xs font-semibold text-muted">
+              <div className="space-y-2">
+                <span className="block font-bold text-foreground uppercase tracking-wider text-[11px]">Explore</span>
+                <div className="flex flex-col gap-1.5">
+                  <Link to="/accommodation" className="hover:text-brand-700 dark:hover:text-brand-300">Stays</Link>
+                  <Link to="/roommates" className="hover:text-brand-700 dark:hover:text-brand-300">Roommates</Link>
+                  <Link to="/shops" className="hover:text-brand-700 dark:hover:text-brand-300">Shops</Link>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <span className="block font-bold text-foreground uppercase tracking-wider text-[11px]">Account</span>
+                <div className="flex flex-col gap-1.5">
+                  {user ? (
+                    <>
+                      <Link to="/dashboard" className="hover:text-brand-700 dark:hover:text-brand-300">Dashboard</Link>
+                      <Link to="/dashboard/accommodation" className="hover:text-brand-700 dark:hover:text-brand-300">My Listings</Link>
+                    </>
+                  ) : (
+                    <>
+                      <Link to="/login" className="hover:text-brand-700 dark:hover:text-brand-300">Sign In</Link>
+                      <Link to="/register" className="hover:text-brand-700 dark:hover:text-brand-300">Register</Link>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <span className="block font-bold text-foreground uppercase tracking-wider text-[11px]">Legal & Safety</span>
+                <div className="flex flex-col gap-1.5">
+                  <Link to="/terms" className="hover:text-brand-700 dark:hover:text-brand-300">Terms of Service</Link>
+                  <Link to="/privacy" className="hover:text-brand-700 dark:hover:text-brand-300">Privacy Policy</Link>
+                  <Link to="/copyright" className="hover:text-brand-700 dark:hover:text-brand-300">Copyright & Takedown</Link>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-6 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted">
+            <p>© {new Date().getFullYear()} PLAWZA. All rights reserved.</p>
+            <p>Operating in compliance with the Republic of Zambia Data Protection Act 2021.</p>
+          </div>
+        </div>
+      </footer>
 
       {/* Mobile Bottom Navigation Bar (Fixed 360px+ touch-optimized) */}
       <nav

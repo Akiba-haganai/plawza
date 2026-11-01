@@ -5,7 +5,6 @@ import {
   Building2,
   Users,
   Store,
-  MapPin,
   ArrowRight,
   ShieldCheck,
   Smartphone
@@ -31,15 +30,15 @@ export const Home: React.FC = () => {
       <section className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-brand-950 via-brand-900 to-brand-950 text-white p-6 sm:p-12 shadow-sm border border-brand-900">
         <div className="max-w-2xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-800/80 border border-brand-700/60 text-xs font-semibold text-brand-100 mb-4">
-            <MapPin className="w-3.5 h-3.5 text-accent-400" />
-            <span>Student housing, roommates and campus shops</span>
+            <span className="w-2 h-2 rounded-full bg-brand-300 animate-pulse"></span>
+            <span className="tracking-widest uppercase font-bold text-[11px]">Discover • Connect • Belong</span>
           </div>
 
           <h1 className="text-3xl sm:text-5xl font-black tracking-tight leading-tight mb-3">
-            Find Student Stays, Roommates & Campus Shops
+            A Digital Plaza for Everyone
           </h1>
           <p className="text-sm sm:text-base text-slate-300 mb-6 leading-relaxed">
-            Plawza connects university students, boarding house landlords, and local campus businesses in Zambia with availability dates and direct WhatsApp contact.
+            Plawza connects students, businesses, landlords, professionals and communities across Zambia with verified listings, catalogues, and direct WhatsApp contact.
           </p>
 
           {/* Quick Search Input */}

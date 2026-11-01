@@ -39,7 +39,7 @@ import { SafetyNotice } from "@/components/common/SafetyNotice";
 
 interface ListingDetail {
   id: string;
-  owner_id: string;
+  owner_id?: string;
   title: string;
   description: string;
   listing_type: string;
@@ -92,6 +92,27 @@ export const AccommodationDetail: React.FC = () => {
   const [viewingMessage, setViewingMessage] = useState("");
   const [enquirySubmitting, setEnquirySubmitting] = useState(false);
   const [enquirySuccess, setEnquirySuccess] = useState(false);
+  const [enquiryCooldownSeconds, setEnquiryCooldownSeconds] = useState(0);
+
+  // Monitor enquiry cooldown for this listing
+  useEffect(() => {
+    if (!id) return;
+    const key = `plawza_enquiry_${id}`;
+    const check = () => {
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        const expiry = parseInt(stored, 10);
+        const remaining = Math.max(0, Math.ceil((expiry - Date.now()) / 1000));
+        setEnquiryCooldownSeconds(remaining);
+        if (remaining > 0) {
+          setEnquirySuccess(true);
+        }
+      }
+    };
+    check();
+    const timer = setInterval(check, 1000);
+    return () => clearInterval(timer);
+  }, [id]);
 
   // Report Modal state
   const [showReportModal, setShowReportModal] = useState(false);
@@ -115,62 +136,50 @@ export const AccommodationDetail: React.FC = () => {
       setError(null);
 
       try {
-        // Query listing with explicit column names (anon allowed)
-        const { data, error: err } = await supabase
-          .from("accommodation_listings")
-          .select(
+        // Single parallel round-trip: join town, campus, and images directly, and run verifications + favourites in parallel
+        const [listingRes, verifRes, favRes] = await Promise.all([
+          supabase
+            .from("accommodation_listings")
+            .select(
+              `
+              id, title, description, listing_type, rent_zmw, deposit_zmw,
+              town_id, area, campus_id, distance_note, bedrooms, bathrooms, furnished,
+              utilities_included, amenities, available_from, availability, contact_shared,
+              status, last_confirmed_at, created_at, updated_at,
+              town:towns(name, province),
+              campus:campuses(name, short_name),
+              accommodation_images(id, storage_path, alt_text, sort_order)
             `
-            id, owner_id, title, description, listing_type, rent_zmw, deposit_zmw,
-            town_id, area, campus_id, distance_note, bedrooms, bathrooms, furnished,
-            utilities_included, amenities, available_from, availability, contact_shared,
-            status, last_confirmed_at, created_at, updated_at,
-            accommodation_images(id, storage_path, alt_text, sort_order)
-          `
-          )
-          .eq("id", listingId)
-          .maybeSingle();
-
-        if (err) throw err;
-        if (!data) {
-          setError("Listing not found or is no longer active.");
-          return;
-        }
-
-        const typedListing = data as unknown as ListingDetail;
-
-        // Fetch town and campus details
-        const [townRes, campusRes, verifRes] = await Promise.all([
-          supabase.from("towns").select("name, province").eq("id", typedListing.town_id).maybeSingle(),
-          typedListing.campus_id
-            ? supabase.from("campuses").select("name, short_name").eq("id", typedListing.campus_id).maybeSingle()
-            : Promise.resolve({ data: null }),
-          // Check honest verification table
+            )
+            .eq("id", listingId)
+            .maybeSingle(),
           supabase
             .from("verifications")
             .select("id")
             .eq("listing_id", listingId)
             .eq("check_type", "moderator_reviewed")
             .is("revoked_at", null)
-            .maybeSingle()
+            .maybeSingle(),
+          user
+            ? supabase
+                .from("favourites")
+                .select("id")
+                .eq("user_id", user.id)
+                .eq("listing_id", listingId)
+                .maybeSingle()
+            : Promise.resolve({ data: null })
         ]);
 
-        if (townRes.data) typedListing.town = townRes.data;
-        if (campusRes.data) typedListing.campus = campusRes.data;
+        if (listingRes.error) throw listingRes.error;
+        if (!listingRes.data) {
+          setError("Listing not found or is no longer active.");
+          return;
+        }
 
+        const typedListing = listingRes.data as unknown as ListingDetail;
         setListing(typedListing);
         setIsModeratorReviewed(Boolean(verifRes.data));
-
-        // Check if user has favourited this listing
-        if (user) {
-          const { data: favData } = await supabase
-            .from("favourites")
-            .select("id")
-            .eq("user_id", user.id)
-            .eq("listing_id", listingId)
-            .maybeSingle();
-
-          setIsFavourite(Boolean(favData));
-        }
+        setIsFavourite(Boolean(favRes.data));
       } catch (err) {
         console.error("Failed to load listing details:", err);
         setError("Error loading property details.");
@@ -252,8 +261,13 @@ export const AccommodationDetail: React.FC = () => {
     if (!id || !listing) return;
     const listingId: string = id;
 
-    if (user.id === listing.owner_id) {
+    if (listing.owner_id && user.id === listing.owner_id) {
       toast.error("You cannot send an enquiry to your own property.");
+      return;
+    }
+
+    if (enquiryCooldownSeconds > 0) {
+      toast.info(`You have already submitted an enquiry for this property. Please wait ${Math.ceil(enquiryCooldownSeconds / 60)} min before sending another.`);
       return;
     }
 
@@ -267,7 +281,7 @@ export const AccommodationDetail: React.FC = () => {
       const { error: err } = await supabase.from("accommodation_enquiries").insert({
         listing_id: listingId,
         requester_id: user.id,
-        owner_id: listing.owner_id,
+        owner_id: listing.owner_id || user.id,
         requester_name: requesterName.trim(),
         requester_phone: requesterPhone.trim() || null,
         message: viewingMessage.trim() || null,
@@ -276,6 +290,11 @@ export const AccommodationDetail: React.FC = () => {
 
       if (err) throw err;
 
+      if (id) {
+        const expiry = Date.now() + 10 * 60 * 1000;
+        localStorage.setItem(`plawza_enquiry_${id}`, expiry.toString());
+        setEnquiryCooldownSeconds(600);
+      }
       setEnquirySuccess(true);
       toast.success("Viewing request sent to landlord!");
     } catch (err: unknown) {
@@ -755,10 +774,15 @@ export const AccommodationDetail: React.FC = () => {
               </p>
 
               {enquirySuccess ? (
-                <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-center space-y-1">
+                <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-center space-y-1.5">
                   <CheckCircle2 className="w-6 h-6 text-emerald-600 mx-auto" />
                   <p className="text-xs font-bold text-emerald-950 dark:text-emerald-100">Viewing Request Sent!</p>
                   <p className="text-[11px] text-muted">The landlord has been notified and can respond with viewing directions.</p>
+                  {enquiryCooldownSeconds > 0 && (
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium pt-1">
+                      Cooldown active: {Math.floor(enquiryCooldownSeconds / 60)}m {enquiryCooldownSeconds % 60}s remaining before another note can be sent.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <form onSubmit={handleSubmitEnquiry} className="space-y-3">

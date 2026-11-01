@@ -70,11 +70,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
-    // 2. Single subscription to auth state changes
+    // 2. Single subscription to auth state changes (skip INITIAL_SESSION since getSession handles it)
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!mounted) return;
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted || event === "INITIAL_SESSION") return;
       setSession(session);
       setUser(session?.user ?? null);
 

@@ -42,7 +42,7 @@ interface CatalogueItem {
 
 interface BusinessDetail {
   id: string;
-  owner_id: string;
+  owner_id?: string;
   name: string;
   slug: string;
   description: string | null;
@@ -118,8 +118,10 @@ export const ShopDetail: React.FC = () => {
         const { data, error: err } = await supabase
           .from("businesses")
           .select(`
-            id, owner_id, name, slug, description, category_id, town_id, area,
+            id, name, slug, description, category_id, town_id, area,
             opening_hours, phone, whatsapp_phone, logo_path, cover_path, status,
+            town:towns(name, province),
+            category:categories(name, slug),
             catalogue_items(
               id, business_id, name, description, item_category, price_zmw,
               image_path, stock_status, stock_updated_at, sort_order
@@ -136,17 +138,6 @@ export const ShopDetail: React.FC = () => {
         }
 
         const b = data as unknown as BusinessDetail;
-
-        // Fetch category & town details
-        const [catRes, townRes] = await Promise.all([
-          b.category_id
-            ? supabase.from("categories").select("name, slug").eq("id", b.category_id).maybeSingle()
-            : Promise.resolve({ data: null }),
-          supabase.from("towns").select("name, province").eq("id", b.town_id).maybeSingle()
-        ]);
-
-        if (catRes.data) b.category = catRes.data;
-        if (townRes.data) b.town = townRes.data;
 
         // Sort items by sort_order
         if (b.catalogue_items) {

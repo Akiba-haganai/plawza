@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   Building2,
@@ -30,7 +30,7 @@ import { SafetyNotice } from "@/components/common/SafetyNotice";
 
 interface ListingItem {
   id: string;
-  owner_id: string;
+  owner_id?: string;
   title: string;
   description: string;
   listing_type: string;
@@ -86,7 +86,11 @@ export const AccommodationList: React.FC = () => {
   const minRent = searchParams.get("minRent") || "";
   const maxRent = searchParams.get("maxRent") || "";
   const sort = searchParams.get("sort") || "confirmed";
-  const selectedAmenities = searchParams.getAll("amenity");
+  const amenitiesKey = searchParams.getAll("amenity").sort().join(",");
+  const selectedAmenities = useMemo(
+    () => (amenitiesKey ? amenitiesKey.split(",") : []),
+    [amenitiesKey]
+  );
 
   // State
   const [listings, setListings] = useState<ListingItem[]>([]);
@@ -220,7 +224,7 @@ export const AccommodationList: React.FC = () => {
           .from("accommodation_listings")
           .select(
             `
-            id, owner_id, title, description, listing_type, rent_zmw, deposit_zmw,
+            id, title, description, listing_type, rent_zmw, deposit_zmw,
             town_id, area, campus_id, distance_note, bedrooms, bathrooms, furnished,
             utilities_included, amenities, available_from, availability, contact_shared,
             status, last_confirmed_at, created_at, updated_at,

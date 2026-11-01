@@ -264,7 +264,7 @@ export const AdminModeration: React.FC = () => {
         // Revoke badge
         const { error: err } = await supabase
           .from("verifications")
-          .update({ revoked_at: new Date().toISOString() })
+          .update({ revoked_at: new Date().toISOString(), revoked_note: verificationNote.trim() })
           .eq("id", existing.id);
 
         if (err) throw err;
@@ -275,14 +275,16 @@ export const AdminModeration: React.FC = () => {
           const { error: err } = await supabase.from("verifications").insert({
             listing_id: historyItem.id,
             check_type: checkType,
-            checked_by: user.id
+            checked_by: user.id,
+            note: verificationNote.trim()
           });
           if (err) throw err;
         } else {
           const { error: err } = await supabase.from("verifications").insert({
             business_id: historyItem.id,
             check_type: checkType,
-            checked_by: user.id
+            checked_by: user.id,
+            note: verificationNote.trim()
           });
           if (err) throw err;
         }

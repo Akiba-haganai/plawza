@@ -3,11 +3,40 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
-    <meta name="theme-color" content="#1D4ED8" />
-    <meta name="description" content="PLAWZA: Accommodation, Roommates & Local Shop Catalogues for Students and Communities in Zambia." />
+    <meta name="theme-color" content="#0B2D6B" />
+    <meta
+      name="description"
+      content="PLAWZA: An open digital plaza where people discover places, businesses, products, services, and connect with one another across Zambia."
+    />
+
+    <!-- Preconnect to Supabase API to eliminate DNS/TLS waterfall latency -->
+    <link rel="preconnect" href="https://tcxnlleyhxcpdvchlybl.supabase.co" crossorigin />
+    <link rel="dns-prefetch" href="https://tcxnlleyhxcpdvchlybl.supabase.co" />
+
+    <!-- Favicons & Icons -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/icons/pwa-192x192.png" />
-    <title>PLAWZA - Stays, Roommates & Shops</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+    <!-- Open Graph / Facebook / WhatsApp -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="PLAWZA — A Digital Plaza for Everyone" />
+    <meta
+      property="og:description"
+      content="Discover • Connect • Belong. The open community marketplace and digital town square for Zambia."
+    />
+    <meta property="og:image" content="/brand/og-image.png" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PLAWZA — A Digital Plaza for Everyone" />
+    <meta
+      name="twitter:description"
+      content="Discover places, businesses, products, services, and connect across Zambia."
+    />
+    <meta name="twitter:image" content="/brand/og-image.png" />
+
+    <title>PLAWZA — A Digital Plaza for Everyone</title>
   </head>
   <body class="bg-background text-foreground antialiased min-h-screen selection:bg-brand-100 selection:text-brand-900">
     <div id="root"></div>

@@ -54,9 +54,11 @@ export const LazyImage: React.FC<LazyImageProps> = ({
     );
   }
 
+  const isEager = props.loading === "eager";
+
   return (
     <div className={`relative w-full overflow-hidden bg-slate-100 dark:bg-slate-800 ${aspectRatio} ${containerClassName}`}>
-      {!loaded && (
+      {!loaded && !isEager && (
         <div className="absolute inset-0 animate-pulse bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
           <ImageIcon className="w-6 h-6 text-muted opacity-30" />
         </div>
@@ -68,7 +70,7 @@ export const LazyImage: React.FC<LazyImageProps> = ({
         decoding="async"
         onLoad={() => setLoaded(true)}
         onError={() => setError(true)}
-        className={`w-full h-full object-cover transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"} ${className}`}
+        className={`w-full h-full object-cover ${isEager ? "" : `transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`} ${className}`}
         {...props}
       />
     </div>

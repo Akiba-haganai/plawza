@@ -39,6 +39,7 @@ export const REPORT_REASONS = [
   { value: "unavailable", label: "Property Already Occupied / Unavailable" },
   { value: "misleading", label: "Misleading Photos or Information" },
   { value: "wrong_info", label: "Incorrect Price or Contact Info" },
+  { value: "copyright", label: "Photos or Content Copied Without Permission" },
   { value: "inappropriate", label: "Inappropriate or Offensive Content" },
   { value: "other", label: "Other Safety / Policy Issue" }
 ] as const;

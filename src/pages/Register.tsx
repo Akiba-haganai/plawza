@@ -12,6 +12,7 @@ export const Register: React.FC = () => {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [confirmationNotice, setConfirmationNotice] = useState(false);
@@ -136,9 +137,31 @@ export const Register: React.FC = () => {
               </div>
             </div>
 
+            <div className="flex items-start gap-2.5 pt-1">
+              <input
+                id="register-terms"
+                type="checkbox"
+                required
+                checked={agreedToTerms}
+                onChange={(e) => setAgreedToTerms(e.target.checked)}
+                className="mt-1 w-4 h-4 rounded border-border text-brand-700 focus:ring-brand-700"
+              />
+              <label htmlFor="register-terms" className="text-xs text-muted leading-relaxed">
+                I agree to the{" "}
+                <Link to="/terms" target="_blank" className="font-semibold text-brand-700 dark:text-brand-300 hover:underline">
+                  Terms of Service
+                </Link>{" "}
+                and{" "}
+                <Link to="/privacy" target="_blank" className="font-semibold text-brand-700 dark:text-brand-300 hover:underline">
+                  Privacy Policy
+                </Link>
+                , and confirm I am 18 years or older (or have guardian consent).
+              </label>
+            </div>
+
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !agreedToTerms}
               className="w-full py-3 px-4 rounded-lg bg-brand-700 hover:bg-brand-900 text-white font-bold text-sm shadow-xs transition-colors flex items-center justify-center gap-2 min-h-[44px] disabled:opacity-50"
             >
               {loading ? "Creating account..." : "Create Free Account"}

@@ -875,6 +875,8 @@ export type Database = {
           listing_id: string | null
           profile_id: string | null
           revoked_at: string | null
+          revoked_note: string | null
+          note: string | null
         }
         Insert: {
           business_id?: string | null
@@ -885,6 +887,8 @@ export type Database = {
           listing_id?: string | null
           profile_id?: string | null
           revoked_at?: string | null
+          revoked_note?: string | null
+          note?: string | null
         }
         Update: {
           business_id?: string | null
@@ -895,6 +899,8 @@ export type Database = {
           listing_id?: string | null
           profile_id?: string | null
           revoked_at?: string | null
+          revoked_note?: string | null
+          note?: string | null
         }
         Relationships: [
           {
@@ -932,6 +938,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      delete_my_account: { Args: Record<string, never>; Returns: undefined }
       is_admin: { Args: never; Returns: boolean }
       is_staff: { Args: never; Returns: boolean }
       match_roommates: {

@@ -77,9 +77,11 @@ export const ShopsList: React.FC = () => {
       let query = supabase
         .from("businesses")
         .select(`
-          id, owner_id, name, slug, description, category_id, town_id, area,
+          id, name, slug, description, category_id, town_id, area,
           opening_hours, phone, whatsapp_phone, logo_path, cover_path, status,
-          created_at, updated_at
+          created_at, updated_at,
+          town:towns(name, province),
+          category:categories(name, slug)
         `)
         .eq("status", "active")
         .order("created_at", { ascending: false });
@@ -94,22 +96,14 @@ export const ShopsList: React.FC = () => {
       if (err) throw err;
 
       const typedData = (data as unknown as BusinessItem[]) || [];
-
-      // Join town & category names
-      const enriched = typedData.map((b) => ({
-        ...b,
-        town: towns.find((t) => t.id === b.town_id),
-        category: categories.find((c) => c.id === b.category_id)
-      }));
-
-      setBusinesses(enriched);
+      setBusinesses(typedData);
     } catch (err) {
       console.error("Failed to load campus shops:", err);
       setError("Unable to load campus shops.");
     } finally {
       setLoading(false);
     }
-  }, [search, townId, categoryId, towns, categories]);
+  }, [search, townId, categoryId]);
 
   useEffect(() => {
     loadBusinesses();

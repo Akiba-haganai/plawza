@@ -1,14 +1,13 @@
-import React, { Suspense, lazy } from "react";
+import React, { lazy } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider } from "@/context/AuthContext";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { AdminRoute } from "@/components/auth/AdminRoute";
-import { Loading } from "@/components/common/Loading";
+import { Home } from "@/pages/Home";
 
-// Lazy-loaded routes
-const Home = lazy(() => import("@/pages/Home").then((m) => ({ default: m.Home })));
+// Lazy-loaded secondary routes (Home is eagerly bundled for instant LCP with zero route waterfall)
 const AccommodationList = lazy(() =>
   import("@/pages/accommodation/AccommodationList").then((m) => ({ default: m.AccommodationList }))
 );
@@ -53,15 +52,18 @@ const AdminReports = lazy(() =>
 );
 
 const NotFound = lazy(() => import("@/pages/NotFound").then((m) => ({ default: m.NotFound })));
+const Terms = lazy(() => import("@/pages/legal/Terms").then((m) => ({ default: m.Terms })));
+const Privacy = lazy(() => import("@/pages/legal/Privacy").then((m) => ({ default: m.Privacy })));
+const Copyright = lazy(() => import("@/pages/legal/Copyright").then((m) => ({ default: m.Copyright })));
+const ResetPassword = lazy(() => import("@/pages/ResetPassword").then((m) => ({ default: m.ResetPassword })));
 
 export const App: React.FC = () => {
   return (
     <AuthProvider>
       <Toaster richColors position="top-right" />
       <BrowserRouter>
-        <Suspense fallback={<Loading fullScreen message="Loading page..." />}>
-          <Routes>
-            <Route path="/" element={<AppLayout />}>
+        <Routes>
+          <Route path="/" element={<AppLayout />}>
               {/* Public Discovery Routes */}
               <Route index element={<Home />} />
               <Route path="accommodation" element={<AccommodationList />} />
@@ -71,6 +73,10 @@ export const App: React.FC = () => {
               <Route path="shops/:slug" element={<ShopDetail />} />
               <Route path="login" element={<Login />} />
               <Route path="register" element={<Register />} />
+              <Route path="reset-password" element={<ResetPassword />} />
+              <Route path="terms" element={<Terms />} />
+              <Route path="privacy" element={<Privacy />} />
+              <Route path="copyright" element={<Copyright />} />
 
               {/* Protected Dashboard Routes */}
               <Route
@@ -136,7 +142,6 @@ export const App: React.FC = () => {
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>
-        </Suspense>
       </BrowserRouter>
     </AuthProvider>
   );

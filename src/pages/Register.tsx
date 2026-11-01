@@ -3,15 +3,16 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { UserPlus, Mail, Lock, User, AlertCircle, CheckCircle2, Eye, EyeOff, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabase";
+import { supabase, getAuthRedirectUrl } from "@/lib/supabase";
 
 const RESEND_COOLDOWN_KEY = "plawza_signup_resend_cooldown";
 
 export const Register: React.FC = () => {
-  const { signUp } = useAuth();
+  const { user, signUp, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const redirectPath = searchParams.get("redirect") || "/dashboard";
+  const rawRedirect = searchParams.get("redirect");
+  const redirectPath = rawRedirect && rawRedirect.startsWith("/") ? rawRedirect : "/dashboard";
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -19,10 +20,18 @@ export const Register: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [confirmationState, setConfirmationState] = useState<"idle" | "verify_email" | "auto_confirmed">("idle");
   const [resending, setResending] = useState(false);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
+
+  // Redirect authenticated users immediately
+  useEffect(() => {
+    if (user && confirmationState === "idle") {
+      navigate(redirectPath, { replace: true });
+    }
+  }, [user, confirmationState, navigate, redirectPath]);
 
   useEffect(() => {
     const checkCooldown = () => {
@@ -43,6 +52,22 @@ export const Register: React.FC = () => {
     const expiry = Date.now() + 60 * 1000;
     localStorage.setItem(RESEND_COOLDOWN_KEY, expiry.toString());
     setCooldownRemaining(60);
+  };
+
+  const handleGoogleSignIn = async () => {
+    if (loading || googleLoading) return;
+    setErrorMessage(null);
+    setGoogleLoading(true);
+    try {
+      const { error } = await signInWithGoogle(redirectPath);
+      if (error) {
+        setErrorMessage(error.message || "Could not start Google sign-in.");
+        setGoogleLoading(false);
+      }
+    } catch {
+      setErrorMessage("Failed to connect to Google authentication. Please try again.");
+      setGoogleLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -92,12 +117,11 @@ export const Register: React.FC = () => {
     setResending(true);
 
     try {
-      const cleanRedirect = redirectPath.startsWith("/") ? redirectPath : "/dashboard";
       const { error } = await supabase.auth.resend({
         type: "signup",
         email: email.trim(),
         options: {
-          emailRedirectTo: `${window.location.origin}${cleanRedirect}`
+          emailRedirectTo: getAuthRedirectUrl(redirectPath)
         }
       });
 
@@ -193,6 +217,42 @@ export const Register: React.FC = () => {
             </div>
           )}
 
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={loading || googleLoading}
+            className="w-full py-2.5 px-4 rounded-lg border border-border bg-background hover:bg-neutral-50 dark:hover:bg-neutral-900 text-foreground font-bold text-sm shadow-2xs transition-colors flex items-center justify-center gap-2.5 min-h-[44px] disabled:opacity-50 cursor-pointer"
+          >
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="#4285F4"
+                d="M23.49 12.275c0-.85-.075-1.665-.215-2.45H12v4.635h6.445c-.28 1.49-1.12 2.755-2.385 3.6v2.99h3.86c2.26-2.08 3.57-5.145 3.57-8.775z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 24c3.24 0 5.955-1.075 7.94-2.91l-3.86-2.99c-1.075.72-2.45 1.145-4.08 1.145-3.135 0-5.79-2.115-6.74-4.96H1.27v3.09C3.245 21.3 7.31 24 12 24z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.26 14.285c-.24-.72-.38-1.49-.38-2.285s.14-1.565.38-2.285v-3.09H1.27C.46 8.235 0 10.065 0 12s.46 3.765 1.27 5.375l3.99-3.09z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 4.755c1.76 0 3.34.605 4.585 1.795l3.435-3.435C17.95 1.185 15.235 0 12 0 7.31 0 3.245 2.7 1.27 6.625l3.99 3.09c.95-2.845 3.605-4.96 6.74-4.96z"
+              />
+            </svg>
+            <span>{googleLoading ? "Connecting to Google..." : "Continue with Google"}</span>
+          </button>
+
+          <div className="relative my-5">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-[11px] uppercase tracking-wider">
+              <span className="bg-surface px-2.5 text-muted font-semibold">or sign up with email</span>
+            </div>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-foreground mb-1.5" htmlFor="register-name">
@@ -284,7 +344,7 @@ export const Register: React.FC = () => {
 
             <button
               type="submit"
-              disabled={loading || !agreedToTerms}
+              disabled={loading || googleLoading || !agreedToTerms}
               className="w-full py-3 px-4 rounded-lg bg-brand-700 hover:bg-brand-900 text-white font-bold text-sm shadow-xs transition-colors flex items-center justify-center gap-2 min-h-[44px] disabled:opacity-50 cursor-pointer"
             >
               {loading ? "Creating account..." : "Create Free Account"}
@@ -305,3 +365,4 @@ export const Register: React.FC = () => {
     </div>
   );
 };
+export default Register;

@@ -4,6 +4,28 @@ import type { Database } from "@/types/database";
 const supabaseUrl: string | undefined = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey: string | undefined = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+/** Canonical production web URL on Cloudflare Workers */
+export const PRODUCTION_SITE_URL = "https://plawza.akiba-hara.workers.dev";
+
+/**
+ * Builds an absolute redirect URL for Supabase Auth callbacks (Email confirmation,
+ * Password reset, and Google OAuth). Uses VITE_SITE_URL if explicitly set, or the
+ * current browser origin (e.g. https://plawza.akiba-hara.workers.dev in production,
+ * http://localhost:5173 in local dev).
+ */
+export function getAuthRedirectUrl(path = "/dashboard"): string {
+  const cleanPath = path && path.startsWith("/") ? path : "/dashboard";
+  if (typeof window === "undefined") {
+    return `${PRODUCTION_SITE_URL}${cleanPath}`;
+  }
+  const configuredSiteUrl = import.meta.env.VITE_SITE_URL as string | undefined;
+  const origin =
+    configuredSiteUrl && /^https?:\/\//.test(configuredSiteUrl)
+      ? configuredSiteUrl.replace(/\/+$/, "")
+      : window.location.origin;
+  return `${origin}${cleanPath}`;
+}
+
 /** True only when a real URL and key were provided at build/dev-server start. */
 export const isSupabaseConfigured: boolean = Boolean(
   supabaseUrl &&

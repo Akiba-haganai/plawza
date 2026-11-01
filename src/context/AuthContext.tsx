@@ -1,11 +1,13 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import type { User, Session } from "@supabase/supabase-js";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
+import { supabase, getAuthRedirectUrl } from "@/lib/supabase";
 import type { Database } from "@/types/database";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 type AppRole = Database["public"]["Enums"]["app_role"];
+
+const POST_AUTH_REDIRECT_KEY = "plawza_post_auth_redirect";
 
 interface AuthContextType {
   user: User | null;
@@ -16,6 +18,7 @@ interface AuthContextType {
   isAdmin: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signInWithGoogle: (redirectTo?: string) => Promise<{ error: Error | null }>;
   signUp: (
     email: string,
     password: string,
@@ -36,15 +39,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState<boolean>(true);
 
   // Fetch verified profile and staff role from database (never trust client claims)
-  const fetchUserData = async (userId: string) => {
+  const fetchUserData = async (currentUser: User) => {
     try {
       const [profileRes, staffRes] = await Promise.all([
-        supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
-        supabase.from("staff_roles").select("role").eq("user_id", userId).maybeSingle()
+        supabase.from("profiles").select("*").eq("id", currentUser.id).maybeSingle(),
+        supabase.from("staff_roles").select("role").eq("user_id", currentUser.id).maybeSingle()
       ]);
 
       if (profileRes.data) {
-        setProfile(profileRes.data);
+        const metaName =
+          (currentUser.user_metadata?.full_name as string | undefined)?.trim() ||
+          (currentUser.user_metadata?.name as string | undefined)?.trim();
+
+        // Backfill full_name from Google OAuth metadata if the profile doesn't have one yet
+        if (!profileRes.data.full_name && metaName) {
+          const { data: updatedProfile } = await supabase
+            .from("profiles")
+            .update({ full_name: metaName.slice(0, 100) })
+            .eq("id", currentUser.id)
+            .select("*")
+            .maybeSingle();
+          setProfile(updatedProfile ?? profileRes.data);
+        } else {
+          setProfile(profileRes.data);
+        }
       } else {
         setProfile(null);
       }
@@ -62,11 +80,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
+    const hash = typeof window !== "undefined" ? window.location.hash : "";
+    const search = typeof window !== "undefined" ? window.location.search : "";
+
+    const isRecoveryCallback =
+      hash.includes("type=recovery") || search.includes("type=recovery");
+
     const isEmailConfirmationCallback =
-      typeof window !== "undefined" &&
-      (window.location.hash.includes("type=signup") ||
-        window.location.hash.includes("type=email") ||
-        window.location.search.includes("code="));
+      hash.includes("type=signup") || hash.includes("type=email");
+
+    const isAuthCallback =
+      isRecoveryCallback ||
+      isEmailConfirmationCallback ||
+      hash.includes("access_token=") ||
+      search.includes("code=");
+
+    const handlePostAuthRedirect = () => {
+      if (typeof window === "undefined") return;
+
+      if (isRecoveryCallback && window.location.pathname !== "/reset-password") {
+        window.location.replace(`/reset-password${window.location.search}${window.location.hash}`);
+        return;
+      }
+
+      const savedRedirect = localStorage.getItem(POST_AUTH_REDIRECT_KEY);
+      if (savedRedirect) {
+        localStorage.removeItem(POST_AUTH_REDIRECT_KEY);
+        if (
+          isAuthCallback &&
+          savedRedirect.startsWith("/") &&
+          window.location.pathname !== savedRedirect &&
+          window.location.pathname !== "/reset-password"
+        ) {
+          window.history.replaceState(null, "", savedRedirect);
+          window.dispatchEvent(new PopStateEvent("popstate"));
+        }
+      } else if (isAuthCallback && window.location.hash.includes("access_token=")) {
+        // Clean up OAuth/email token hash from the address bar
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+    };
 
     // 1. Initial session load
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -77,7 +130,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (isEmailConfirmationCallback) {
           toast.success("Email confirmed! Welcome to Plawza.");
         }
-        fetchUserData(session.user.id).finally(() => {
+        handlePostAuthRedirect();
+        fetchUserData(session.user).finally(() => {
           if (mounted) setLoading(false);
         });
       } else {
@@ -93,8 +147,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSession(session);
       setUser(session?.user ?? null);
 
+      if (event === "PASSWORD_RECOVERY" && typeof window !== "undefined") {
+        if (window.location.pathname !== "/reset-password") {
+          window.history.replaceState(null, "", "/reset-password");
+          window.dispatchEvent(new PopStateEvent("popstate"));
+        }
+      }
+
       if (session?.user) {
-        await fetchUserData(session.user.id);
+        if (event === "SIGNED_IN") {
+          handlePostAuthRedirect();
+        }
+        await fetchUserData(session.user);
       } else {
         setProfile(null);
         setStaffRole(null);
@@ -113,9 +177,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { error };
   };
 
+  const signInWithGoogle = async (redirectTo?: string) => {
+    const cleanRedirect = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/dashboard";
+    if (typeof window !== "undefined") {
+      localStorage.setItem(POST_AUTH_REDIRECT_KEY, cleanRedirect);
+    }
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: getAuthRedirectUrl(cleanRedirect),
+        queryParams: {
+          prompt: "select_account"
+        }
+      }
+    });
+
+    return { error };
+  };
+
   const signUp = async (email: string, password: string, fullName?: string, redirectTo?: string) => {
     const cleanRedirect = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/dashboard";
-    const emailRedirectTo = `${window.location.origin}${cleanRedirect}`;
+    if (typeof window !== "undefined") {
+      localStorage.setItem(POST_AUTH_REDIRECT_KEY, cleanRedirect);
+    }
+    const emailRedirectTo = getAuthRedirectUrl(cleanRedirect);
 
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -150,7 +236,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshProfile = async () => {
     if (user) {
-      await fetchUserData(user.id);
+      await fetchUserData(user);
     }
   };
 
@@ -168,6 +254,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAdmin,
         loading,
         signIn,
+        signInWithGoogle,
         signUp,
         signOut,
         refreshProfile

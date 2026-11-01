@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import type { User, Session } from "@supabase/supabase-js";
+import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import type { Database } from "@/types/database";
 
@@ -15,7 +16,12 @@ interface AuthContextType {
   isAdmin: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, fullName?: string) => Promise<{ error: Error | null }>;
+  signUp: (
+    email: string,
+    password: string,
+    fullName?: string,
+    redirectTo?: string
+  ) => Promise<{ error: Error | null; needsEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -56,12 +62,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
 
+    const isEmailConfirmationCallback =
+      typeof window !== "undefined" &&
+      (window.location.hash.includes("type=signup") ||
+        window.location.hash.includes("type=email") ||
+        window.location.search.includes("code="));
+
     // 1. Initial session load
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
+        if (isEmailConfirmationCallback) {
+          toast.success("Email confirmed! Welcome to Plawza.");
+        }
         fetchUserData(session.user.id).finally(() => {
           if (mounted) setLoading(false);
         });
@@ -98,17 +113,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { error };
   };
 
-  const signUp = async (email: string, password: string, fullName?: string) => {
-    const { error } = await supabase.auth.signUp({
+  const signUp = async (email: string, password: string, fullName?: string, redirectTo?: string) => {
+    const cleanRedirect = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/dashboard";
+    const emailRedirectTo = `${window.location.origin}${cleanRedirect}`;
+
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
+        emailRedirectTo,
         data: {
           full_name: fullName?.trim() || ""
         }
       }
     });
-    return { error };
+
+    // Supabase returns an empty identities array when email confirmation is on and the email is already registered
+    if (!error && data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      return {
+        error: new Error("An account with this email already exists. Please sign in instead."),
+        needsEmailConfirmation: false
+      };
+    }
+
+    const needsEmailConfirmation = !error && Boolean(data?.user) && !data?.session;
+    return { error, needsEmailConfirmation };
   };
 
   const signOut = async () => {

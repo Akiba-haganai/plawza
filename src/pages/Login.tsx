@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { LogIn, Mail, Lock, AlertCircle, X, CheckCircle2, KeyRound } from "lucide-react";
+import { LogIn, Mail, Lock, AlertCircle, X, CheckCircle2, KeyRound, Eye, EyeOff, RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
 const COOLDOWN_KEY = "plawza_pwd_reset_cooldown";
+const RESEND_VERIFY_KEY = "plawza_signup_resend_cooldown";
 
 export const Login: React.FC = () => {
   const { signIn } = useAuth();
@@ -15,8 +16,12 @@ export const Login: React.FC = () => {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState(false);
+  const [resendingVerify, setResendingVerify] = useState(false);
+  const [verifyCooldown, setVerifyCooldown] = useState(0);
 
   // Forgot password state
   const [showForgotModal, setShowForgotModal] = useState(false);
@@ -26,25 +31,30 @@ export const Login: React.FC = () => {
   const [forgotSuccess, setForgotSuccess] = useState(false);
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
 
-  // Initialize and tick cooldown timer
+  // Initialize and tick cooldown timers
   useEffect(() => {
-    const checkCooldown = () => {
-      const stored = localStorage.getItem(COOLDOWN_KEY);
-      if (stored) {
-        const expiry = parseInt(stored, 10);
-        const remaining = Math.max(0, Math.ceil((expiry - Date.now()) / 1000));
-        setCooldownRemaining(remaining);
+    const checkCooldowns = () => {
+      const storedReset = localStorage.getItem(COOLDOWN_KEY);
+      if (storedReset) {
+        const expiry = parseInt(storedReset, 10);
+        setCooldownRemaining(Math.max(0, Math.ceil((expiry - Date.now()) / 1000)));
+      }
+      const storedVerify = localStorage.getItem(RESEND_VERIFY_KEY);
+      if (storedVerify) {
+        const expiry = parseInt(storedVerify, 10);
+        setVerifyCooldown(Math.max(0, Math.ceil((expiry - Date.now()) / 1000)));
       }
     };
 
-    checkCooldown();
-    const interval = setInterval(checkCooldown, 1000);
+    checkCooldowns();
+    const interval = setInterval(checkCooldowns, 1000);
     return () => clearInterval(interval);
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setUnconfirmedEmail(false);
 
     if (!email.trim() || !password) {
       setErrorMessage("Please enter both email and password.");
@@ -55,7 +65,14 @@ export const Login: React.FC = () => {
     try {
       const { error } = await signIn(email.trim(), password);
       if (error) {
-        setErrorMessage(error.message || "Invalid email or password.");
+        if (error.message?.toLowerCase().includes("email not confirmed")) {
+          setUnconfirmedEmail(true);
+          setErrorMessage(
+            "Your email address has not been confirmed yet. Please open the confirmation link sent to your inbox (or spam folder) before signing in."
+          );
+        } else {
+          setErrorMessage(error.message || "Invalid email or password.");
+        }
       } else {
         navigate(redirectPath, { replace: true });
       }
@@ -63,6 +80,35 @@ export const Login: React.FC = () => {
       setErrorMessage("Failed to connect to authentication server. Please check your network.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (resendingVerify || verifyCooldown > 0 || !email.trim()) return;
+    setResendingVerify(true);
+
+    try {
+      const cleanRedirect = redirectPath.startsWith("/") ? redirectPath : "/dashboard";
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: email.trim(),
+        options: {
+          emailRedirectTo: `${window.location.origin}${cleanRedirect}`
+        }
+      });
+
+      if (error) {
+        toast.error(error.message || "Could not resend confirmation email.");
+      } else {
+        const expiry = Date.now() + 60 * 1000;
+        localStorage.setItem(RESEND_VERIFY_KEY, expiry.toString());
+        setVerifyCooldown(60);
+        toast.success("Confirmation link sent! Please check your email inbox and spam folder.");
+      }
+    } catch {
+      toast.error("Network error while resending confirmation email.");
+    } finally {
+      setResendingVerify(false);
     }
   };
 
@@ -120,9 +166,26 @@ export const Login: React.FC = () => {
       </div>
 
       {errorMessage && (
-        <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-danger-600 dark:text-red-300 text-xs flex items-start gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{errorMessage}</span>
+        <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-danger-600 dark:text-red-300 text-xs space-y-2">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{errorMessage}</span>
+          </div>
+          {unconfirmedEmail && (
+            <button
+              type="button"
+              onClick={handleResendConfirmation}
+              disabled={resendingVerify || verifyCooldown > 0}
+              className="w-full py-2 px-3 rounded-md bg-brand-700 hover:bg-brand-900 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${resendingVerify ? "animate-spin" : ""}`} />
+              {verifyCooldown > 0
+                ? `Resend Confirmation Link (${verifyCooldown}s)`
+                : resendingVerify
+                  ? "Sending..."
+                  : "Resend Confirmation Email"}
+            </button>
+          )}
         </div>
       )}
 
@@ -163,14 +226,23 @@ export const Login: React.FC = () => {
             <Lock className="w-4 h-4 text-muted absolute left-3 top-3.5" />
             <input
               id="login-password"
-              type="password"
+              type={showPassword ? "text" : "password"}
               required
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+              className="w-full pl-9 pr-11 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-brand-700 min-h-[44px]"
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword((prev) => !prev)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              title={showPassword ? "Hide password" : "Show password"}
+              className="absolute right-2 top-1.5 p-2 rounded-md text-muted hover:text-foreground transition-colors cursor-pointer"
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
           </div>
         </div>
 

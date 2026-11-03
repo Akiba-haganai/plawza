@@ -15,7 +15,10 @@ import {
   XCircle,
   Eye,
   Calendar,
-  X
+  X,
+  Sparkles,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -26,7 +29,6 @@ import { compressImage } from "@/lib/imageCompression";
 import { getPublicStorageUrl } from "@/lib/storage";
 import { LISTING_TYPES, AMENITIES_VOCABULARY, UTILITIES_VOCABULARY } from "@/lib/constants";
 import { isConfirmationOverdue, calculateDaysSince } from "@/lib/differentiators";
-import { Loading } from "@/components/common/Loading";
 import { Empty } from "@/components/common/Empty";
 import { ErrorState } from "@/components/common/ErrorState";
 
@@ -58,8 +60,10 @@ interface OwnerListing {
   accommodation_images?: Array<{ id: string; storage_path: string; sort_order: number }>;
 }
 
+const DRAFT_FORM_STORAGE_KEY = "plawza_draft_listing_form_v1";
+
 export const DashboardAccommodation: React.FC = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { towns, campuses } = useReferenceData();
 
   const [listings, setListings] = useState<OwnerListing[]>([]);
@@ -69,6 +73,8 @@ export const DashboardAccommodation: React.FC = () => {
   // Form modal state
   const [showModal, setShowModal] = useState(false);
   const [editingListing, setEditingListing] = useState<OwnerListing | null>(null);
+  const [quickPostMode, setQuickPostMode] = useState(true);
+  const [showMoreOptional, setShowMoreOptional] = useState(false);
 
   // Form fields
   const [title, setTitle] = useState("");
@@ -93,6 +99,49 @@ export const DashboardAccommodation: React.FC = () => {
   const [existingImages, setExistingImages] = useState<Array<{ id: string; storage_path: string; sort_order: number }>>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [formSubmitting, setFormSubmitting] = useState(false);
+
+  // Autosave new listing draft fields to localStorage so accidental modal close doesn't lose work
+  useEffect(() => {
+    if (!showModal || editingListing) return;
+    try {
+      localStorage.setItem(
+        DRAFT_FORM_STORAGE_KEY,
+        JSON.stringify({
+          title,
+          description,
+          listingType,
+          rentZmw,
+          depositZmw,
+          townId,
+          area,
+          campusId,
+          distanceNote,
+          ownerPhone,
+          ownerWhatsApp,
+          selectedAmenities,
+          selectedUtilities
+        })
+      );
+    } catch {
+      // ignore storage quota errors
+    }
+  }, [
+    showModal,
+    editingListing,
+    title,
+    description,
+    listingType,
+    rentZmw,
+    depositZmw,
+    townId,
+    area,
+    campusId,
+    distanceNote,
+    ownerPhone,
+    ownerWhatsApp,
+    selectedAmenities,
+    selectedUtilities
+  ]);
 
   // Differentiator: Unconfirmed listings nudge (14+ days)
   const overdueListings = listings.filter(
@@ -129,26 +178,58 @@ export const DashboardAccommodation: React.FC = () => {
     loadListings();
   }, [loadListings]);
 
-  // Open Create Form
+  // Open Create Form (restoring any unsaved local draft or prefilling from profile)
   const handleOpenCreate = () => {
     setEditingListing(null);
-    setTitle("");
-    setDescription("");
-    setListingType("room");
-    setRentZmw("");
-    setDepositZmw("");
-    setTownId(towns[0]?.id || "");
-    setArea("");
-    setCampusId("");
-    setDistanceNote("");
-    setBedrooms("");
-    setBathrooms("");
-    setFurnished(false);
-    setSelectedUtilities([]);
-    setSelectedAmenities([]);
-    setContactShared(true);
-    setOwnerPhone("");
-    setOwnerWhatsApp("");
+    setQuickPostMode(true);
+    setShowMoreOptional(false);
+
+    let restored = false;
+    try {
+      const raw = localStorage.getItem(DRAFT_FORM_STORAGE_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (draft && (draft.area || draft.rentZmw || draft.title || draft.description)) {
+          setTitle(draft.title || "");
+          setDescription(draft.description || "");
+          setListingType(draft.listingType || "room");
+          setRentZmw(draft.rentZmw || "");
+          setDepositZmw(draft.depositZmw || "");
+          setTownId(draft.townId || profile?.town_id || towns[0]?.id || "");
+          setArea(draft.area || "");
+          setCampusId(draft.campusId || profile?.campus_id || "");
+          setDistanceNote(draft.distanceNote || "");
+          setOwnerPhone(draft.ownerPhone || profile?.phone || "");
+          setOwnerWhatsApp(draft.ownerWhatsApp || profile?.phone || "");
+          setSelectedAmenities(Array.isArray(draft.selectedAmenities) ? draft.selectedAmenities : []);
+          setSelectedUtilities(Array.isArray(draft.selectedUtilities) ? draft.selectedUtilities : []);
+          restored = true;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    if (!restored) {
+      setTitle("");
+      setDescription("");
+      setListingType("room");
+      setRentZmw("");
+      setDepositZmw("");
+      setTownId(profile?.town_id || towns[0]?.id || "");
+      setArea("");
+      setCampusId(profile?.campus_id || "");
+      setDistanceNote("");
+      setBedrooms("");
+      setBathrooms("");
+      setFurnished(false);
+      setSelectedUtilities([]);
+      setSelectedAmenities([]);
+      setContactShared(true);
+      setOwnerPhone(profile?.phone || "");
+      setOwnerWhatsApp(profile?.phone || "");
+    }
+
     setExistingImages([]);
     setShowModal(true);
   };
@@ -156,6 +237,8 @@ export const DashboardAccommodation: React.FC = () => {
   // Open Edit Form
   const handleOpenEdit = async (listing: OwnerListing) => {
     setEditingListing(listing);
+    setQuickPostMode(false);
+    setShowMoreOptional(true);
     setTitle(listing.title);
     setDescription(listing.description);
     setListingType(listing.listing_type);
@@ -242,60 +325,79 @@ export const DashboardAccommodation: React.FC = () => {
     }
   };
 
-  // Handle Image Upload with Client-Side Compression
+  // Handle Multi-Image Upload with Client-Side Compression
   const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0 || !user) return;
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0 || !user) return;
 
-    if (existingImages.length >= 10) {
+    const remainingSlots = 10 - existingImages.length;
+    if (remainingSlots <= 0) {
       toast.error("A maximum of 10 photos is permitted per listing.");
       return;
     }
 
+    const selectedFiles = Array.from(fileList).slice(0, remainingSlots);
+    if (fileList.length > remainingSlots) {
+      toast.info(`Uploading first ${remainingSlots} photos (max 10 per listing).`);
+    }
+
     setUploadingImage(true);
     try {
-      const file = files[0];
-      if (!file) return;
+      toast.info(
+        selectedFiles.length > 1
+          ? `Compressing & uploading ${selectedFiles.length} photos...`
+          : "Compressing photo for mobile network..."
+      );
 
-      toast.info("Compressing image for mobile network...");
-      const compressed = await compressImage(file, 1280, 1280, 0.82);
-
-      // Temporary or listing ID path convention: {auth.uid()}/{listingId}/{file}
+      const newUploadedRows: Array<{ id: string; storage_path: string; sort_order: number }> = [];
       const listingId = editingListing?.id || "temp";
-      const storagePath = `${user.id}/${listingId}/${compressed.fileName}`;
 
-      const { error: uploadErr } = await supabase.storage
-        .from("listing-images")
-        .upload(storagePath, compressed.blob, {
-          contentType: "image/webp",
-          upsert: false
-        });
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        if (!file) continue;
 
-      if (uploadErr) throw uploadErr;
+        const compressed = await compressImage(file, 1280, 1280, 0.82);
+        const storagePath = `${user.id}/${listingId}/${compressed.fileName}`;
 
-      // If we are actively editing an existing listing, persist immediately to accommodation_images
-      if (editingListing) {
-        const { data: imgRow, error: imgErr } = await supabase
-          .from("accommodation_images")
-          .insert({
-            listing_id: editingListing.id,
+        const { error: uploadErr } = await supabase.storage
+          .from("listing-images")
+          .upload(storagePath, compressed.blob, {
+            contentType: "image/webp",
+            upsert: false
+          });
+
+        if (uploadErr) throw uploadErr;
+
+        const sortOrder = existingImages.length + newUploadedRows.length;
+
+        if (editingListing) {
+          const { data: imgRow, error: imgErr } = await supabase
+            .from("accommodation_images")
+            .insert({
+              listing_id: editingListing.id,
+              storage_path: storagePath,
+              sort_order: sortOrder
+            })
+            .select()
+            .single();
+
+          if (imgErr) throw imgErr;
+          newUploadedRows.push(imgRow);
+        } else {
+          newUploadedRows.push({
+            id: `temp-${Date.now()}-${i}`,
             storage_path: storagePath,
-            sort_order: existingImages.length
-          })
-          .select()
-          .single();
-
-        if (imgErr) throw imgErr;
-        setExistingImages((prev) => [...prev, imgRow]);
-        toast.success("Photo uploaded! (Note: active listings return to pending for review)");
-      } else {
-        // Just track locally for pending insert
-        setExistingImages((prev) => [
-          ...prev,
-          { id: `temp-${Date.now()}`, storage_path: storagePath, sort_order: prev.length }
-        ]);
-        toast.success("Photo ready!");
+            sort_order: sortOrder
+          });
+        }
       }
+
+      setExistingImages((prev) => [...prev, ...newUploadedRows]);
+      toast.success(
+        newUploadedRows.length > 1
+          ? `${newUploadedRows.length} photos uploaded!`
+          : "Photo ready!"
+      );
     } catch (err: unknown) {
       console.error("Image upload failed:", err);
       const message = err instanceof Error ? err.message : "Image upload failed";
@@ -326,15 +428,6 @@ export const DashboardAccommodation: React.FC = () => {
     e.preventDefault();
     if (!user) return;
 
-    // Validate client-side DB constraints
-    if (title.trim().length < 8 || title.trim().length > 100) {
-      toast.error("Title must be between 8 and 100 characters.");
-      return;
-    }
-    if (description.trim().length < 20 || description.trim().length > 3000) {
-      toast.error("Description must be between 20 and 3,000 characters.");
-      return;
-    }
     const rentNum = parseFloat(rentZmw);
     if (isNaN(rentNum) || rentNum < 0) {
       toast.error("Monthly rent must be 0 ZMW or greater.");
@@ -360,14 +453,42 @@ export const DashboardAccommodation: React.FC = () => {
       toast.error("Please enter a valid Zambian phone number (+260... or 097...).");
       return;
     }
-    const normalizedWa = ownerWhatsApp.trim() ? toZambianE164(ownerWhatsApp) : null;
+    const normalizedWa = ownerWhatsApp.trim() ? toZambianE164(ownerWhatsApp) : normalizedPhone;
+
+    // Auto-generate clean Title & Description if left blank in Quick Post mode
+    const typeLabel = LISTING_TYPES.find((t) => t.value === listingType)?.label || "Accommodation";
+    const townName = towns.find((t) => t.id === townId)?.name || "";
+    const campusLabel = campuses.find((c) => c.id === campusId)?.short_name || "";
+
+    const finalTitle =
+      title.trim().length >= 8
+        ? title.trim().slice(0, 100)
+        : `${typeLabel} in ${area.trim()}${townName ? `, ${townName}` : ""}${
+            campusLabel ? ` (Near ${campusLabel})` : ""
+          }`.slice(0, 100);
+
+    const finalDescription =
+      description.trim().length >= 20
+        ? description.trim().slice(0, 3000)
+        : `${typeLabel} available in ${area.trim()}${townName ? `, ${townName}` : ""} for ZMW ${rentNum.toLocaleString()} per month.${
+            campusLabel ? ` Located convenient to ${campusLabel}.` : ""
+          } Contact the landlord via Plawza to arrange an in-person viewing before paying any deposit.`;
+
+    if (finalTitle.length < 8 || finalTitle.length > 100) {
+      toast.error("Title must be between 8 and 100 characters.");
+      return;
+    }
+    if (finalDescription.length < 20 || finalDescription.length > 3000) {
+      toast.error("Description must be between 20 and 3,000 characters.");
+      return;
+    }
 
     setFormSubmitting(true);
     try {
       const payload = {
         owner_id: user.id,
-        title: title.trim(),
-        description: description.trim(),
+        title: finalTitle,
+        description: finalDescription,
         listing_type: listingType,
         rent_zmw: rentNum,
         deposit_zmw: depositNum,
@@ -427,6 +548,12 @@ export const DashboardAccommodation: React.FC = () => {
         );
 
         if (contactErr) console.warn("Error updating private contact:", contactErr);
+      }
+
+      try {
+        localStorage.removeItem(DRAFT_FORM_STORAGE_KEY);
+      } catch {
+        // ignore
       }
 
       toast.success(
@@ -507,22 +634,36 @@ export const DashboardAccommodation: React.FC = () => {
         <button
           type="button"
           onClick={handleOpenCreate}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-700 hover:bg-brand-900 text-white rounded-lg text-xs font-bold shadow-xs transition-colors min-h-[44px] w-fit"
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-700 hover:bg-brand-900 text-white rounded-lg text-xs font-bold shadow-xs transition-colors min-h-[44px] w-fit cursor-pointer"
         >
           <Plus className="w-4 h-4" />
-          Add New Property
+          Quick Post Property
         </button>
       </div>
 
       {loading ? (
-        <Loading fullScreen message="Loading your properties..." />
+        <div className="space-y-3" aria-busy="true">
+          {[1, 2, 3].map((n) => (
+            <div
+              key={n}
+              className="p-5 rounded-2xl bg-surface border border-border animate-pulse flex items-center gap-4"
+            >
+              <div className="w-24 h-20 rounded-xl bg-slate-200 dark:bg-slate-800 shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 w-1/3 rounded bg-slate-200 dark:bg-slate-800" />
+                <div className="h-5 w-1/2 rounded bg-slate-200 dark:bg-slate-800" />
+                <div className="h-3 w-1/4 rounded bg-slate-200 dark:bg-slate-800" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : error ? (
         <ErrorState message={error} onRetry={loadListings} />
       ) : listings.length === 0 ? (
         <Empty
           title="No properties listed yet"
-          description="You haven't added any accommodation properties yet. List your boarding house or rooms to start receiving student tenant enquiries."
-          actionLabel="Post Your First Property"
+          description="You haven't added any accommodation properties yet. Use Quick Post to list your boarding house or room in under 60 seconds."
+          actionLabel="Quick Post Your First Property"
           onAction={handleOpenCreate}
         />
       ) : (
@@ -548,7 +689,7 @@ export const DashboardAccommodation: React.FC = () => {
                     key={l.id}
                     type="button"
                     onClick={() => handleConfirmAvailable(l.id)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-2xs transition-colors min-h-[44px]"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold shadow-2xs transition-colors min-h-[44px]"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
                     <span>Confirm "{l.title.slice(0, 16)}..."</span>
@@ -621,7 +762,7 @@ export const DashboardAccommodation: React.FC = () => {
                     onChange={(e) =>
                       handleUpdateAvailability(item.id, e.target.value as "available" | "pending" | "occupied")
                     }
-                    className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-border bg-background min-h-[44px]"
+                    className="text-base sm:text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-border bg-background min-h-[44px]"
                   >
                     <option value="available">Mark Available</option>
                     <option value="pending">Mark Pending</option>
@@ -636,7 +777,7 @@ export const DashboardAccommodation: React.FC = () => {
                       title="Confirm still available as of today"
                       className={`p-2 rounded-lg text-xs font-semibold min-h-[44px] flex items-center gap-1 transition-colors ${
                         item.status === "active" && isConfirmationOverdue(item.last_confirmed_at, item.created_at, 14)
-                          ? "bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-2xs"
+                          ? "bg-amber-700 hover:bg-amber-800 text-white font-bold shadow-2xs"
                           : "border border-border hover:bg-slate-100 text-brand-700"
                       }`}
                     >
@@ -688,20 +829,63 @@ export const DashboardAccommodation: React.FC = () => {
           role="dialog"
           aria-modal="true"
         >
-          <div className="w-full max-w-2xl bg-surface rounded-2xl border border-border shadow-2xl p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto animate-in fade-in">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <h2 className="text-lg font-black text-foreground flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-brand-700" />
-                {editingListing ? "Edit Accommodation" : "Post New Accommodation"}
-              </h2>
+          <div className="w-full max-w-2xl bg-surface rounded-2xl border border-border shadow-2xl p-5 sm:p-6 space-y-5 my-8 max-h-[90vh] overflow-y-auto animate-in fade-in">
+            <div className="flex items-center justify-between border-b border-border pb-3 gap-2">
+              <div>
+                <h2 className="text-lg font-black text-foreground flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-brand-700" />
+                  {editingListing ? "Edit Accommodation" : "Post Accommodation"}
+                </h2>
+                {!editingListing && (
+                  <p className="text-xs text-muted mt-0.5">
+                    Drafts autosave on your phone. In Quick Post mode, only Photos, Type, Rent, Area & Phone are needed.
+                  </p>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={() => setShowModal(false)}
-                className="p-3.5 text-muted hover:text-foreground rounded-md"
+                className="p-3 text-muted hover:text-foreground rounded-md shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Quick Post vs Full Details Toggle */}
+            {!editingListing && (
+              <div className="flex items-center gap-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-border">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuickPostMode(true);
+                    setShowMoreOptional(false);
+                  }}
+                  className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-colors min-h-[40px] cursor-pointer ${
+                    quickPostMode
+                      ? "bg-brand-700 text-white shadow-2xs"
+                      : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Quick Post (Fast 5 Fields)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuickPostMode(false);
+                    setShowMoreOptional(true);
+                  }}
+                  className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-colors min-h-[40px] cursor-pointer ${
+                    !quickPostMode
+                      ? "bg-brand-700 text-white shadow-2xs"
+                      : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  <span>Full Details</span>
+                </button>
+              </div>
+            )}
 
             {/* Crucial Security & Re-Review Warning */}
             {editingListing?.status === "active" && (
@@ -717,232 +901,21 @@ export const DashboardAccommodation: React.FC = () => {
             )}
 
             <form className="space-y-4">
-              {/* Title */}
-              <div>
-                <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-title">
-                  Listing Title (8 to 100 characters) *
-                </label>
-                <input
-                  id="p-title"
-                  type="text"
-                  required
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Spacious Self-Contained Room near campus"
-                  className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
-                />
-              </div>
-
-              {/* Type, Town, Campus */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-type">
-                    Listing Type *
-                  </label>
-                  <select
-                    id="p-type"
-                    value={listingType}
-                    onChange={(e) => setListingType(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground min-h-[44px]"
-                  >
-                    {LISTING_TYPES.map((t) => (
-                      <option key={t.value} value={t.value}>
-                        {t.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-town">
-                    City / Town *
-                  </label>
-                  <select
-                    id="p-town"
-                    value={townId}
-                    onChange={(e) => setTownId(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground min-h-[44px]"
-                  >
-                    <option value="">Select town</option>
-                    {towns.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-campus">
-                    Nearby Campus
-                  </label>
-                  <select
-                    id="p-campus"
-                    value={campusId}
-                    onChange={(e) => setCampusId(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground min-h-[44px]"
-                  >
-                    <option value="">None / Off-campus</option>
-                    {campuses.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Area & Distance Note */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-area">
-                    Area / Neighbourhood (Public) *
-                  </label>
-                  <input
-                    id="p-area"
-                    type="text"
-                    required
-                    value={area}
-                    onChange={(e) => setArea(e.target.value)}
-                    placeholder="e.g. Town Centre, North End"
-                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground min-h-[44px]"
-                  />
-                  <span className="text-[10px] text-muted mt-1 block">
-                    Never input exact house number. Keep neighbourhood approximate.
+              {/* 1. Multi-Photo Upload with Compression (First in Quick Post!) */}
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-border space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="block text-xs font-bold text-foreground">
+                    1. Property Photos (Select multiple at once • Max 10)
+                  </span>
+                  <span className="text-[11px] font-bold text-brand-700 dark:text-brand-300">
+                    {existingImages.length}/10 uploaded
                   </span>
                 </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-dist">
-                    Distance Note to Campus
-                  </label>
-                  <input
-                    id="p-dist"
-                    type="text"
-                    value={distanceNote}
-                    onChange={(e) => setDistanceNote(e.target.value)}
-                    placeholder="e.g. 5 min walk from the main gate"
-                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground min-h-[44px]"
-                  />
-                </div>
-              </div>
-
-              {/* Pricing (ZMW) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-rent">
-                    Monthly Rent in Zambian Kwacha (ZMW) *
-                  </label>
-                  <input
-                    id="p-rent"
-                    type="number"
-                    required
-                    min="0"
-                    step="50"
-                    value={rentZmw}
-                    onChange={(e) => setRentZmw(e.target.value)}
-                    placeholder="e.g. 1500"
-                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground min-h-[44px]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-dep">
-                    Security Deposit in ZMW (Optional)
-                  </label>
-                  <input
-                    id="p-dep"
-                    type="number"
-                    min="0"
-                    step="50"
-                    value={depositZmw}
-                    onChange={(e) => setDepositZmw(e.target.value)}
-                    placeholder="e.g. 1500"
-                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground min-h-[44px]"
-                  />
-                </div>
-              </div>
-
-              {/* Contact Phone (Stored in private_contacts) */}
-              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-border space-y-3">
-                <span className="text-xs font-bold text-foreground block">
-                  Private Landlord Contact Details
-                </span>
                 <p className="text-[11px] text-muted">
-                  These phone numbers are stored securely in a private table and are never readable by arbitrary public queries.
+                  Tap "Add Photos" to pick multiple photos from your phone gallery or camera. Compressed automatically for 3G/4G.
                 </p>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-foreground mb-1" htmlFor="p-phone">
-                      Calling Phone Number (+260...) *
-                    </label>
-                    <input
-                      id="p-phone"
-                      type="tel"
-                      required
-                      value={ownerPhone}
-                      onChange={(e) => setOwnerPhone(e.target.value)}
-                      placeholder="e.g. 0971234567"
-                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-xs text-foreground min-h-[44px]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-foreground mb-1" htmlFor="p-wa">
-                      WhatsApp Phone Number (Optional)
-                    </label>
-                    <input
-                      id="p-wa"
-                      type="tel"
-                      value={ownerWhatsApp}
-                      onChange={(e) => setOwnerWhatsApp(e.target.value)}
-                      placeholder="e.g. 0971234567"
-                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-xs text-foreground min-h-[44px]"
-                    />
-                  </div>
-                </div>
-
-                {/* Consent Toggle */}
-                <label className="flex items-start gap-2 pt-1 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={contactShared}
-                    onChange={(e) => setContactShared(e.target.checked)}
-                    className="mt-0.5 rounded-sm border-border text-brand-700 focus:ring-brand-700"
-                  />
-                  <span className="text-xs text-slate-700 dark:text-slate-300">
-                    I consent to signed-in users viewing my contact details through Plawza's secure contact reveal button.
-                  </span>
-                </label>
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-desc">
-                  Detailed Description (20 to 3,000 characters) *
-                </label>
-                <textarea
-                  id="p-desc"
-                  rows={4}
-                  required
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Describe room dimensions, rules, distance to transport, boarding fees, etc..."
-                  className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground"
-                />
-              </div>
-
-              {/* Photo Upload with Compression */}
-              <div className="space-y-2">
-                <span className="block text-xs font-bold text-foreground">
-                  Listing Photos (Max 10 images)
-                </span>
-                <p className="text-[11px] text-muted">
-                  Images are automatically compressed client-side before upload to conserve mobile bandwidth.
-                </p>
-
-                <div className="flex flex-wrap gap-2 items-center">
+                <div className="flex flex-wrap gap-2 items-center pt-1">
                   {existingImages.map((img) => (
                     <div
                       key={img.id}
@@ -965,13 +938,14 @@ export const DashboardAccommodation: React.FC = () => {
                   ))}
 
                   {existingImages.length < 10 && (
-                    <label className="w-20 h-16 rounded-lg border-2 border-dashed border-border hover:border-brand-700 flex flex-col items-center justify-center cursor-pointer text-muted hover:text-brand-700 transition-colors">
+                    <label className="px-4 h-16 rounded-lg border-2 border-dashed border-brand-600/60 hover:border-brand-700 bg-surface flex flex-col items-center justify-center cursor-pointer text-brand-700 dark:text-brand-300 transition-colors">
                       <Upload className="w-4 h-4 mb-1" />
-                      <span className="text-[10px] font-bold">
-                        {uploadingImage ? "..." : "Add"}
+                      <span className="text-[11px] font-bold">
+                        {uploadingImage ? "Uploading..." : "+ Add Photos"}
                       </span>
                       <input
                         type="file"
+                        multiple
                         accept="image/jpeg,image/png,image/webp"
                         disabled={uploadingImage}
                         onChange={handleImageFileChange}
@@ -982,73 +956,304 @@ export const DashboardAccommodation: React.FC = () => {
                 </div>
               </div>
 
-              {/* Amenities Checkboxes */}
-              <div>
-                <span className="block text-xs font-bold text-foreground mb-1.5">Amenities Available</span>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-40 overflow-y-auto pr-1">
-                  {AMENITIES_VOCABULARY.map((amenity) => {
-                    const checked = selectedAmenities.includes(amenity.value);
-                    return (
-                      <label
-                        key={amenity.value}
-                        className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer ${
-                          checked
-                            ? "bg-brand-50 border-brand-300 text-brand-900 dark:bg-brand-950 dark:text-brand-100 font-bold"
-                            : "border-border text-muted"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {
-                            if (checked) {
-                              setSelectedAmenities(selectedAmenities.filter((a) => a !== amenity.value));
-                            } else {
-                              setSelectedAmenities([...selectedAmenities, amenity.value]);
-                            }
-                          }}
-                          className="rounded-sm border-border text-brand-700 focus:ring-brand-700"
-                        />
-                        <span className="truncate">{amenity.label}</span>
-                      </label>
-                    );
-                  })}
+              {/* 2. Type, Monthly Rent & Town */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-type">
+                    2. Listing Type *
+                  </label>
+                  <select
+                    id="p-type"
+                    value={listingType}
+                    onChange={(e) => setListingType(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
+                  >
+                    {LISTING_TYPES.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-rent">
+                    3. Monthly Rent (ZMW) *
+                  </label>
+                  <input
+                    id="p-rent"
+                    type="number"
+                    inputMode="numeric"
+                    required
+                    min="0"
+                    step="50"
+                    value={rentZmw}
+                    onChange={(e) => setRentZmw(e.target.value)}
+                    placeholder="e.g. 1500"
+                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-town">
+                    4. City / Town *
+                  </label>
+                  <select
+                    id="p-town"
+                    value={townId}
+                    onChange={(e) => setTownId(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
+                  >
+                    <option value="">Select town</option>
+                    {towns.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
-              {/* Utilities Checkboxes */}
-              <div>
-                <span className="block text-xs font-bold text-foreground mb-1.5">Utilities Included in Rent</span>
-                <div className="flex flex-wrap gap-2">
-                  {UTILITIES_VOCABULARY.map((util) => {
-                    const checked = selectedUtilities.includes(util.value);
-                    return (
-                      <label
-                        key={util.value}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs cursor-pointer ${
-                          checked
-                            ? "bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100 font-bold"
-                            : "border-border text-muted"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {
-                            if (checked) {
-                              setSelectedUtilities(selectedUtilities.filter((u) => u !== util.value));
-                            } else {
-                              setSelectedUtilities([...selectedUtilities, util.value]);
-                            }
-                          }}
-                          className="rounded-sm border-border text-emerald-600 focus:ring-emerald-600"
-                        />
-                        <span>{util.label}</span>
-                      </label>
-                    );
-                  })}
+              {/* 4b. Area & Nearby Campus */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-area">
+                    Area / Neighbourhood *
+                  </label>
+                  <input
+                    id="p-area"
+                    type="text"
+                    required
+                    value={area}
+                    onChange={(e) => setArea(e.target.value)}
+                    placeholder="e.g. Riverside, Parklands, Kalingalinga"
+                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
+                  />
+                  <span className="text-[10px] text-muted mt-1 block">
+                    Approximate neighbourhood only (keep exact house number private).
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-campus">
+                    Nearby Campus (Optional)
+                  </label>
+                  <select
+                    id="p-campus"
+                    value={campusId}
+                    onChange={(e) => setCampusId(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
+                  >
+                    <option value="">None / Off-campus</option>
+                    {campuses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
+
+              {/* 5. Contact Phone (Stored in private_contacts) */}
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-border space-y-3">
+                <span className="text-xs font-bold text-foreground block">
+                  5. Landlord Phone / WhatsApp Number *
+                </span>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-foreground mb-1" htmlFor="p-phone">
+                      Phone Number (+260 or 097...) *
+                    </label>
+                    <input
+                      id="p-phone"
+                      type="tel"
+                      required
+                      value={ownerPhone}
+                      onChange={(e) => setOwnerPhone(e.target.value)}
+                      placeholder="e.g. 0971234567"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-foreground mb-1" htmlFor="p-wa">
+                      WhatsApp Number (Defaults to Phone if blank)
+                    </label>
+                    <input
+                      id="p-wa"
+                      type="tel"
+                      value={ownerWhatsApp}
+                      onChange={(e) => setOwnerWhatsApp(e.target.value)}
+                      placeholder="e.g. 0971234567"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
+                    />
+                  </div>
+                </div>
+
+                {/* Consent Toggle */}
+                <label className="flex items-start gap-2 pt-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={contactShared}
+                    onChange={(e) => setContactShared(e.target.checked)}
+                    className="mt-0.5 rounded-sm border-border text-brand-700 focus:ring-brand-700"
+                  />
+                  <span className="text-xs text-slate-700 dark:text-slate-300">
+                    Allow signed-in students to reveal my phone/WhatsApp number directly on the listing.
+                  </span>
+                </label>
+              </div>
+
+              {/* Collapsible Optional Details Toggle in Quick Post Mode */}
+              {quickPostMode && !editingListing && (
+                <button
+                  type="button"
+                  onClick={() => setShowMoreOptional((prev) => !prev)}
+                  className="w-full py-2.5 px-4 rounded-xl border border-border bg-surface hover:bg-slate-50 dark:hover:bg-slate-800/60 text-xs font-bold text-foreground flex items-center justify-between transition-colors min-h-[44px] cursor-pointer"
+                >
+                  <span>
+                    Optional Details (Custom Title, Description, Solar/Borehole Amenities, Deposit)
+                  </span>
+                  {showMoreOptional ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+              )}
+
+              {(!quickPostMode || showMoreOptional || editingListing) && (
+                <div className="space-y-4 pt-2 border-t border-border">
+                  {/* Custom Title */}
+                  <div>
+                    <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-title">
+                      Custom Listing Title {quickPostMode ? "(Auto-generated if left blank)" : "(8 to 100 chars) *"}
+                    </label>
+                    <input
+                      id="p-title"
+                      type="text"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder="e.g. Spacious Self-Contained Room near CBU Gate"
+                      className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+                    />
+                  </div>
+
+                  {/* Custom Description */}
+                  <div>
+                    <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-desc">
+                      Detailed Description {quickPostMode ? "(Auto-generated if left blank)" : "(20 to 3,000 chars) *"}
+                    </label>
+                    <textarea
+                      id="p-desc"
+                      rows={3}
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="Describe room rules, distance to campus gate, curfews, etc..."
+                      className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground"
+                    />
+                  </div>
+
+                  {/* Deposit & Distance Note */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-dep">
+                        Security Deposit in ZMW (Optional)
+                      </label>
+                      <input
+                        id="p-dep"
+                        type="number"
+                        inputMode="numeric"
+                        min="0"
+                        step="50"
+                        value={depositZmw}
+                        onChange={(e) => setDepositZmw(e.target.value)}
+                        placeholder="e.g. 1500"
+                        className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-foreground mb-1" htmlFor="p-dist">
+                        Distance Note to Campus (Optional)
+                      </label>
+                      <input
+                        id="p-dist"
+                        type="text"
+                        value={distanceNote}
+                        onChange={(e) => setDistanceNote(e.target.value)}
+                        placeholder="e.g. 5 min walk from main gate"
+                        className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Amenities Checkboxes */}
+                  <div>
+                    <span className="block text-xs font-bold text-foreground mb-1.5">Amenities Available</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-40 overflow-y-auto pr-1">
+                      {AMENITIES_VOCABULARY.map((amenity) => {
+                        const checked = selectedAmenities.includes(amenity.value);
+                        return (
+                          <label
+                            key={amenity.value}
+                            className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer ${
+                              checked
+                                ? "bg-brand-50 border-brand-300 text-brand-900 dark:bg-brand-950 dark:text-brand-100 font-bold"
+                                : "border-border text-muted"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                if (checked) {
+                                  setSelectedAmenities(selectedAmenities.filter((a) => a !== amenity.value));
+                                } else {
+                                  setSelectedAmenities([...selectedAmenities, amenity.value]);
+                                }
+                              }}
+                              className="rounded-sm border-border text-brand-700 focus:ring-brand-700"
+                            />
+                            <span className="truncate">{amenity.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Utilities Checkboxes */}
+                  <div>
+                    <span className="block text-xs font-bold text-foreground mb-1.5">Utilities Included in Rent</span>
+                    <div className="flex flex-wrap gap-2">
+                      {UTILITIES_VOCABULARY.map((util) => {
+                        const checked = selectedUtilities.includes(util.value);
+                        return (
+                          <label
+                            key={util.value}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs cursor-pointer ${
+                              checked
+                                ? "bg-emerald-50 border-emerald-300 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100 font-bold"
+                                : "border-border text-muted"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                if (checked) {
+                                  setSelectedUtilities(selectedUtilities.filter((u) => u !== util.value));
+                                } else {
+                                  setSelectedUtilities([...selectedUtilities, util.value]);
+                                }
+                              }}
+                              className="rounded-sm border-border text-emerald-600 focus:ring-emerald-600"
+                            />
+                            <span>{util.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Form Action Buttons */}
               <div className="flex flex-col sm:flex-row items-center gap-2 pt-4 border-t border-border">
@@ -1066,7 +1271,7 @@ export const DashboardAccommodation: React.FC = () => {
                   disabled={formSubmitting}
                   className="w-full sm:w-auto flex-1 py-3 px-4 rounded-xl bg-brand-700 hover:bg-brand-900 text-white text-xs font-bold shadow-xs min-h-[44px] disabled:opacity-50"
                 >
-                  {formSubmitting ? "Submitting..." : "Submit for Moderator Review"}
+                  {formSubmitting ? "Submitting..." : "Publish for Moderator Review"}
                 </button>
               </div>
             </form>

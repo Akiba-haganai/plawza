@@ -1,12 +1,19 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "plawza",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-10-23",
   "observability": {
     "enabled": true
   },
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/accommodation/*",
+      "/shops/*",
+      "/og-env.json"
+    ]
   }
 }

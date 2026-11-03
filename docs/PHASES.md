@@ -106,7 +106,7 @@ PHASE 5, SHOPS. Read AGENTS.md.
 
 /shops: list active businesses with category, town, search. /shops/:slug: business page with logo/cover, opening hours ("Open now" computed from hours when present), catalogue items with price (optional) and a stock badge: In stock / Low stock / Out of stock (text + icon, not colour alone) and "stock updated N days ago". WhatsApp and call buttons using published business numbers (phone.ts). Owner form states clearly that business phone numbers are public.
 
-/dashboard/businesses: create/edit business (auto slug, uniqueness handled), submit for review, manage catalogue (add, edit, reorder, quick stock-status toggle, image upload with compression). No cart, checkout or payments.
+/dashboard/businesses: create/edit business (auto slug, uniqueness handled), submit for review, manage catalogue (add, edit, reorder, quick stock-status toggle, image upload with compression). Includes a localStorage single-shop WhatsApp order basket ("prices are as listed; Plawza is not part of the sale"), with no on-platform checkout or payments.
 
 Done when: owner publishes a shop after admin approval; visitor browses, sees stock status, and WhatsApps it. STOP.
 ```

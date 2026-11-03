@@ -1,0 +1,26 @@
+name: Supabase Free-Tier Keep-Alive
+
+on:
+  schedule:
+    # Runs at 06:15 UTC every 3 days to prevent free-tier Supabase pausing after 7 days of inactivity
+    - cron: "15 6 */3 * *"
+  workflow_dispatch:
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase PostgREST endpoint
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://tcxnlleyhxcpdvchlybl.supabase.co' }}
+          SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRjeG5sbGV5aHhjcGR2Y2hseWJsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0NDA1NzMsImV4cCI6MjA5MjAxNjU3M30.fcW0IrCbcwF3jH1d6-mckxD3P4i55V2A7i8_E_r5nJ8' }}
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${SUPABASE_URL}/rest/v1/towns?select=id&limit=1" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
+          echo "Supabase keep-alive HTTP status: ${STATUS}"
+          if [ "$STATUS" -lt 200 ] || [ "$STATUS" -ge 300 ]; then
+            echo "Keep-alive request failed with status ${STATUS}"
+            exit 1
+          fi

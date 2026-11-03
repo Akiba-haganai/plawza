@@ -6,29 +6,50 @@ import {
   Shield,
   Upload,
   Trash2,
-    AlertCircle,
-  Smartphone,
-    Download,
-    MapPin,
+  AlertCircle,
+  Download,
+  MapPin,
   School,
   Eye,
   EyeOff,
-      RefreshCw
+  RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar } from "@/components/common/Avatar";
 import { toZambianE164 } from "@/lib/phone";
-import {
-  getPushSubscriptionState,
-  subscribeToPush,
-  unsubscribeFromPush
-} from "@/lib/pushNotifications";
 import type { Database } from "@/types/database";
 
 type Town = Database["public"]["Tables"]["towns"]["Row"];
 type Campus = Database["public"]["Tables"]["campuses"]["Row"];
+
+/**
+ * Purges all files stored under `${userId}/` across all three public storage buckets
+ * prior to account deletion so no orphaned personal photos remain.
+ */
+async function purgeUserStorageFiles(userId: string): Promise<void> {
+  const buckets = ["avatars", "listing-images", "business-images"] as const;
+  await Promise.all(
+    buckets.map(async (bucket) => {
+      try {
+        const { data: files } = await supabase.storage.from(bucket).list(userId, {
+          limit: 200
+        });
+        if (files && files.length > 0) {
+          const pathsToDelete = files
+            .filter((f) => Boolean(f.name))
+            .map((f) => `${userId}/${f.name}`);
+          if (pathsToDelete.length > 0) {
+            await supabase.storage.from(bucket).remove(pathsToDelete);
+          }
+        }
+      } catch (err) {
+        console.warn(`Could not list/remove files in bucket ${bucket}:`, err);
+      }
+    })
+  );
+}
 
 export const DashboardSettings: React.FC = () => {
   const { user, profile, updateProfile, uploadAvatar, signOut } = useAuth();
@@ -48,12 +69,6 @@ export const DashboardSettings: React.FC = () => {
   // Reference data
   const [towns, setTowns] = useState<Town[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
-
-  // Notifications State
-  const [pushSupported, setPushSupported] = useState(false);
-  const [pushSubscribed, setPushSubscribed] = useState(false);
-  const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
-  const [pushUpdating, setPushUpdating] = useState(false);
 
   const [notifPrefs, setNotifPrefs] = useState({
     email_enquiries: true,
@@ -86,8 +101,8 @@ export const DashboardSettings: React.FC = () => {
       setPhone(profile.phone || "");
       setTownId(profile.town_id || "");
       setCampusId(profile.campus_id || "");
-      setContactMethod((profile.preferred_contact_method as any) || "whatsapp");
-      setContactVisibility((profile.contact_visibility as any) || "public");
+      setContactMethod((profile.preferred_contact_method as "whatsapp" | "call" | "sms") || "whatsapp");
+      setContactVisibility((profile.contact_visibility as "public" | "verified_only" | "on_request") || "public");
     }
   }, [profile]);
 
@@ -104,17 +119,9 @@ export const DashboardSettings: React.FC = () => {
     loadRefData();
   }, []);
 
-  // Check push subscription status and load notification preferences
+  // Load notification preferences
   useEffect(() => {
     if (!user) return;
-
-    async function checkPush() {
-      const state = await getPushSubscriptionState();
-      setPushSupported(state.supported);
-      setPushSubscribed(state.subscribed);
-      setPushPermission(state.permission);
-    }
-    checkPush();
 
     async function loadPrefs() {
       const { data } = await supabase
@@ -164,8 +171,12 @@ export const DashboardSettings: React.FC = () => {
 
   // Remove Avatar
   const handleRemoveAvatar = async () => {
+    if (!user) return;
     setAvatarUploading(true);
     try {
+      if (profile?.avatar_path) {
+        await supabase.storage.from("avatars").remove([profile.avatar_path]);
+      }
       const { error } = await updateProfile({ avatar_path: null, avatar_url: null });
       if (error) throw error;
       toast.success("Profile photo removed.");
@@ -210,36 +221,6 @@ export const DashboardSettings: React.FC = () => {
       toast.error(msg);
     } finally {
       setProfileSaving(false);
-    }
-  };
-
-  // Toggle Web Push
-  const handleTogglePush = async () => {
-    if (!user) return;
-    setPushUpdating(true);
-    try {
-      if (pushSubscribed) {
-        const { success, error } = await unsubscribeFromPush(user.id);
-        if (success) {
-          setPushSubscribed(false);
-          toast.success("Push notifications turned off on this device.");
-        } else {
-          toast.error(error || "Could not unsubscribe from push.");
-        }
-      } else {
-        const { success, error } = await subscribeToPush(user.id);
-        if (success) {
-          setPushSubscribed(true);
-          setPushPermission("granted");
-          toast.success("Push notifications enabled! You will now receive instant alerts.");
-        } else {
-          toast.error(error || "Could not enable push notifications.");
-        }
-      }
-    } catch {
-      toast.error("An error occurred while updating push settings.");
-    } finally {
-      setPushUpdating(false);
     }
   };
 
@@ -348,9 +329,10 @@ export const DashboardSettings: React.FC = () => {
     }
   };
 
-  // Delete Account
+  // Delete Account (purges storage buckets first, then deletes auth user & cascading rows)
   const handleDeleteAccount = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     if (deleteConfirmText.trim().toUpperCase() !== "DELETE") {
       toast.error("Please type DELETE to confirm.");
       return;
@@ -358,10 +340,11 @@ export const DashboardSettings: React.FC = () => {
 
     setDeleting(true);
     try {
+      await purgeUserStorageFiles(user.id);
       const { error } = await supabase.rpc("delete_my_account");
       if (error) throw error;
 
-      toast.success("Your account and listings have been permanently deleted.");
+      toast.success("Your account, photos, and listings have been permanently deleted.");
       await signOut();
       window.location.href = "/";
     } catch (err: unknown) {
@@ -380,7 +363,7 @@ export const DashboardSettings: React.FC = () => {
       <div className="border-b border-border pb-4">
         <h1 className="text-2xl font-black text-foreground">Profile & Settings</h1>
         <p className="text-xs text-muted mt-1">
-          Manage your personal details, public contact preferences, notifications, and security.
+          Manage your personal details, default campus filter, in-app notifications, and account security.
         </p>
       </div>
 
@@ -389,7 +372,7 @@ export const DashboardSettings: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab("profile")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer shrink-0 ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer shrink-0 min-h-[44px] ${
             activeTab === "profile"
               ? "border-brand-700 text-brand-700 dark:border-brand-400 dark:text-brand-300"
               : "border-transparent text-muted hover:text-foreground"
@@ -402,20 +385,20 @@ export const DashboardSettings: React.FC = () => {
         <button
           type="button"
           onClick={() => setActiveTab("notifications")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer shrink-0 ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer shrink-0 min-h-[44px] ${
             activeTab === "notifications"
               ? "border-brand-700 text-brand-700 dark:border-brand-400 dark:text-brand-300"
               : "border-transparent text-muted hover:text-foreground"
           }`}
         >
           <Bell className="w-4 h-4" />
-          <span>Notifications & Push</span>
+          <span>Notifications</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab("security")}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer shrink-0 ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer shrink-0 min-h-[44px] ${
             activeTab === "security"
               ? "border-brand-700 text-brand-700 dark:border-brand-400 dark:text-brand-300"
               : "border-transparent text-muted hover:text-foreground"
@@ -443,10 +426,10 @@ export const DashboardSettings: React.FC = () => {
             <div className="flex-1 text-center sm:text-left space-y-2">
               <h3 className="text-base font-bold text-foreground">Profile Picture</h3>
               <p className="text-xs text-muted leading-relaxed">
-                Photos help students, landlords and roommates recognize you. Photos are compressed to save mobile bandwidth.
+                Photos help students, landlords and roommates recognize you. Photos are compressed on your device to save mobile data.
               </p>
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-2">
-                <label className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-brand-700 hover:bg-brand-900 text-white text-xs font-bold transition-colors cursor-pointer min-h-[38px]">
+                <label className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-brand-700 hover:bg-brand-900 text-white text-xs font-bold transition-colors cursor-pointer min-h-[40px]">
                   <Upload className="w-3.5 h-3.5" />
                   <span>{avatarSource ? "Change Photo" : "Upload Photo"}</span>
                   <input
@@ -463,7 +446,7 @@ export const DashboardSettings: React.FC = () => {
                     type="button"
                     onClick={handleRemoveAvatar}
                     disabled={avatarUploading}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs font-semibold text-danger-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors min-h-[38px] cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs font-semibold text-danger-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors min-h-[40px] cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>Remove</span>
@@ -486,23 +469,24 @@ export const DashboardSettings: React.FC = () => {
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="e.g. Mwamba Mwape"
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground placeholder:text-muted focus:ring-2 focus:ring-brand-700 min-h-[44px]"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-foreground mb-1.5">
-                  Phone Number (for enquiries)
+                  Phone Number (prefilled on viewing forms)
                 </label>
                 <input
                   type="tel"
+                  inputMode="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="e.g. +260971234567"
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+                  placeholder="e.g. 0971234567"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground placeholder:text-muted focus:ring-2 focus:ring-brand-700 min-h-[44px]"
                 />
-                <span className="text-[10px] text-muted mt-1 block">
-                  Accepted formats: +260 97X XXX XXX or 097X XXX XXX
+                <span className="text-[11px] text-muted mt-1 block">
+                  Used to prefill your viewing requests and quick posts (+260 or 097/096/095).
                 </span>
               </div>
             </div>
@@ -512,15 +496,15 @@ export const DashboardSettings: React.FC = () => {
                 <label className="block text-xs font-bold text-foreground">
                   Short Bio / About You
                 </label>
-                <span className="text-[10px] text-muted">{bio.length}/250</span>
+                <span className="text-[11px] text-muted">{bio.length}/250</span>
               </div>
               <textarea
                 value={bio}
                 maxLength={250}
                 onChange={(e) => setBio(e.target.value)}
-                placeholder="e.g. 3rd-year CS student at UNZA looking for quiet, studious accommodation..."
+                placeholder="e.g. 3rd-year CS student at CBU or boarding house manager in Riverside..."
                 rows={3}
-                className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted focus:ring-2 focus:ring-brand-700 resize-none"
+                className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground placeholder:text-muted focus:ring-2 focus:ring-brand-700 resize-none"
               />
             </div>
 
@@ -533,7 +517,7 @@ export const DashboardSettings: React.FC = () => {
                 <select
                   value={townId}
                   onChange={(e) => setTownId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
                 >
                   <option value="">Select your town...</option>
                   {towns.map((t) => (
@@ -547,12 +531,12 @@ export const DashboardSettings: React.FC = () => {
               <div>
                 <label className="block text-xs font-bold text-foreground mb-1.5 flex items-center gap-1.5">
                   <School className="w-3.5 h-3.5 text-muted" />
-                  <span>Associated Campus / University</span>
+                  <span>Default Campus (Auto-filters stays)</span>
                 </label>
                 <select
                   value={campusId}
                   onChange={(e) => setCampusId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
                 >
                   <option value="">Select campus (optional)...</option>
                   {campuses.map((c) => (
@@ -564,50 +548,11 @@ export const DashboardSettings: React.FC = () => {
               </div>
             </div>
 
-            {/* Contact Preferences */}
-            <div className="pt-4 border-t border-border space-y-4">
-              <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">
-                Contact & Enquiry Preferences
-              </h4>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-foreground mb-1.5">
-                    Preferred Contact Method
-                  </label>
-                  <select
-                    value={contactMethod}
-                    onChange={(e) => setContactMethod(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
-                  >
-                    <option value="whatsapp">WhatsApp Message (Recommended)</option>
-                    <option value="call">Phone Call</option>
-                    <option value="sms">SMS Text</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-foreground mb-1.5">
-                    Phone Number Visibility
-                  </label>
-                  <select
-                    value={contactVisibility}
-                    onChange={(e) => setContactVisibility(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
-                  >
-                    <option value="public">Public on listings</option>
-                    <option value="verified_only">Verified members only</option>
-                    <option value="on_request">Only after responding to enquiry</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
             <div className="pt-2 flex justify-end">
               <button
                 type="submit"
                 disabled={profileSaving}
-                className="px-6 py-2.5 rounded-lg bg-brand-700 hover:bg-brand-900 text-white font-bold text-xs shadow-xs transition-colors min-h-[42px] disabled:opacity-50 cursor-pointer"
+                className="px-6 py-2.5 rounded-lg bg-brand-700 hover:bg-brand-900 text-white font-bold text-xs shadow-xs transition-colors min-h-[44px] disabled:opacity-50 cursor-pointer"
               >
                 {profileSaving ? "Saving..." : "Save Profile Details"}
               </button>
@@ -616,62 +561,25 @@ export const DashboardSettings: React.FC = () => {
         </div>
       )}
 
-      {/* TAB 2: NOTIFICATIONS & PUSH */}
+      {/* TAB 2: IN-APP NOTIFICATION PREFERENCES */}
       {activeTab === "notifications" && (
         <div className="space-y-6">
-          {/* Web Push Card */}
-          <div className="p-6 bg-surface rounded-2xl border border-border shadow-xs space-y-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-brand-50 dark:bg-brand-950/70 text-brand-700 dark:text-brand-300 flex items-center justify-center shrink-0">
-                  <Smartphone className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-foreground">Web Push Notifications</h3>
-                  <p className="text-xs text-muted">
-                    Receive instant alerts on this device when students enquire about your listings or roommates connect.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleTogglePush}
-                disabled={pushUpdating || !pushSupported || pushPermission === "denied"}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
-                  pushSubscribed
-                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700"
-                    : "bg-brand-700 hover:bg-brand-900 text-white shadow-xs"
-                } disabled:opacity-50`}
-              >
-                {pushUpdating
-                  ? "Updating..."
-                  : pushSubscribed
-                    ? "Subscribed ✓"
-                    : "Enable Push"}
-              </button>
+          <div className="p-6 bg-surface rounded-2xl border border-border shadow-xs space-y-5">
+            <div>
+              <h3 className="text-sm font-bold text-foreground">In-App & Alert Preferences</h3>
+              <p className="text-xs text-muted mt-0.5">
+                Control which real-time alerts appear in your notification bell while using Plawza.
+              </p>
             </div>
 
-            {pushPermission === "denied" && (
-              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>
-                  Push notifications are blocked in your browser settings. Please click the padlock icon in your browser address bar and allow notifications.
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Granular Preferences */}
-          <div className="p-6 bg-surface rounded-2xl border border-border shadow-xs space-y-5">
-            <h3 className="text-sm font-bold text-foreground">Notification Channels</h3>
-
             <div className="space-y-4 divide-y divide-border">
-              {/* Push Enquiries */}
+              {/* Enquiry Alerts */}
               <div className="flex items-center justify-between pt-3">
                 <div>
-                  <p className="text-xs font-bold text-foreground">New Enquiry Alerts</p>
-                  <p className="text-[11px] text-muted">Instant push notification when someone enquires about your stay or shop.</p>
+                  <p className="text-xs font-bold text-foreground">Enquiry & Status Update Alerts</p>
+                  <p className="text-[11px] text-muted">
+                    Get notified in-app when someone enquires about your stay or when a landlord updates your viewing request status.
+                  </p>
                 </div>
                 <input
                   type="checkbox"
@@ -681,11 +589,13 @@ export const DashboardSettings: React.FC = () => {
                 />
               </div>
 
-              {/* Push Reminders */}
+              {/* Reminders */}
               <div className="flex items-center justify-between pt-3">
                 <div>
-                  <p className="text-xs font-bold text-foreground">Listing Expiry & Confirmation Reminders</p>
-                  <p className="text-[11px] text-muted">Alerts when a listing hasn't been confirmed in 25+ days so your search rank stays high.</p>
+                  <p className="text-xs font-bold text-foreground">Listing Availability Reminders</p>
+                  <p className="text-[11px] text-muted">
+                    Remind me when my active listing hasn't been reconfirmed in 25+ days so my search rank stays high.
+                  </p>
                 </div>
                 <input
                   type="checkbox"
@@ -695,25 +605,13 @@ export const DashboardSettings: React.FC = () => {
                 />
               </div>
 
-              {/* Email Enquiries */}
-              <div className="flex items-center justify-between pt-3">
-                <div>
-                  <p className="text-xs font-bold text-foreground">Email Notifications for Enquiries</p>
-                  <p className="text-[11px] text-muted">Receive enquiry summaries in your email inbox at {user?.email}.</p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={notifPrefs.email_enquiries}
-                  onChange={(e) => setNotifPrefs({ ...notifPrefs, email_enquiries: e.target.checked })}
-                  className="w-4 h-4 rounded border-border text-brand-700 focus:ring-brand-700 cursor-pointer"
-                />
-              </div>
-
               {/* In-app sound */}
               <div className="flex items-center justify-between pt-3">
                 <div>
-                  <p className="text-xs font-bold text-foreground">In-App Chime Sound</p>
-                  <p className="text-[11px] text-muted">Play a subtle audio tone when new notifications arrive while browsing Plawza.</p>
+                  <p className="text-xs font-bold text-foreground">In-App Notification Toast</p>
+                  <p className="text-[11px] text-muted">
+                    Show a pop-up banner at the top of the screen when a new notification arrives in real time.
+                  </p>
                 </div>
                 <input
                   type="checkbox"
@@ -729,7 +627,7 @@ export const DashboardSettings: React.FC = () => {
                 type="button"
                 onClick={handleSaveNotifPrefs}
                 disabled={prefsSaving}
-                className="px-5 py-2.5 rounded-lg bg-brand-700 hover:bg-brand-900 text-white font-bold text-xs shadow-xs transition-colors min-h-[42px] disabled:opacity-50 cursor-pointer"
+                className="px-5 py-2.5 rounded-lg bg-brand-700 hover:bg-brand-900 text-white font-bold text-xs shadow-xs transition-colors min-h-[44px] disabled:opacity-50 cursor-pointer"
               >
                 {prefsSaving ? "Saving..." : "Save Preferences"}
               </button>
@@ -761,7 +659,7 @@ export const DashboardSettings: React.FC = () => {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full px-3.5 pr-10 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+                    className="w-full px-3.5 pr-10 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground placeholder:text-muted focus:ring-2 focus:ring-brand-700 min-h-[44px]"
                   />
                   <button
                     type="button"
@@ -784,7 +682,7 @@ export const DashboardSettings: React.FC = () => {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground placeholder:text-muted focus:ring-2 focus:ring-brand-700 min-h-[44px]"
                 />
               </div>
             </div>
@@ -793,7 +691,7 @@ export const DashboardSettings: React.FC = () => {
               <button
                 type="submit"
                 disabled={passwordLoading}
-                className="px-5 py-2.5 rounded-lg bg-brand-700 hover:bg-brand-900 text-white font-bold text-xs shadow-xs transition-colors min-h-[42px] disabled:opacity-50 cursor-pointer"
+                className="px-5 py-2.5 rounded-lg bg-brand-700 hover:bg-brand-900 text-white font-bold text-xs shadow-xs transition-colors min-h-[44px] disabled:opacity-50 cursor-pointer"
               >
                 {passwordLoading ? "Updating..." : "Update Password"}
               </button>
@@ -812,7 +710,7 @@ export const DashboardSettings: React.FC = () => {
               <button
                 type="button"
                 onClick={handleSignOutOtherDevices}
-                className="px-3.5 py-2 rounded-lg border border-border bg-surface text-xs font-bold text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+                className="px-3.5 py-2 rounded-lg border border-border bg-surface text-xs font-bold text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0 cursor-pointer min-h-[40px]"
               >
                 Sign Out Other Sessions
               </button>
@@ -829,7 +727,7 @@ export const DashboardSettings: React.FC = () => {
                 type="button"
                 onClick={handleExportData}
                 disabled={exporting}
-                className="px-3.5 py-2 rounded-lg border border-border bg-surface text-xs font-bold text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                className="px-3.5 py-2 rounded-lg border border-border bg-surface text-xs font-bold text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 min-h-[40px]"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>{exporting ? "Exporting..." : "Download JSON"}</span>
@@ -844,13 +742,13 @@ export const DashboardSettings: React.FC = () => {
               <h3 className="text-sm font-bold">Danger Zone: Delete Account</h3>
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Permanently delete your user profile, accommodation listings, roommate profile, and business listings. This action cannot be reversed.
+              Permanently delete your user profile, uploaded storage photos, accommodation listings, roommate profile, and business listings. This action cannot be reversed.
             </p>
             <div className="pt-1">
               <button
                 type="button"
                 onClick={() => setShowDeleteModal(true)}
-                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-colors cursor-pointer"
+                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-colors cursor-pointer min-h-[40px]"
               >
                 Delete Account
               </button>
@@ -867,7 +765,7 @@ export const DashboardSettings: React.FC = () => {
               Delete Account Permanently?
             </h3>
             <p className="text-xs text-muted leading-relaxed">
-              This will permanently delete your user account and purge all your listings, images, enquiries, and roommate profiles from Plawza.
+              This will permanently erase your uploaded photos from storage and delete your user account, listings, enquiries, and roommate profiles from Plawza.
             </p>
             <p className="text-xs font-bold text-foreground">
               Please type <span className="text-danger-600">DELETE</span> below to confirm:
@@ -880,23 +778,23 @@ export const DashboardSettings: React.FC = () => {
                 value={deleteConfirmText}
                 onChange={(e) => setDeleteConfirmText(e.target.value)}
                 placeholder="DELETE"
-                className="w-full px-3.5 py-2.5 rounded-lg border border-red-300 dark:border-red-800 bg-background text-sm font-bold text-foreground focus:ring-2 focus:ring-red-600 min-h-[44px]"
+                className="w-full px-3.5 py-2.5 rounded-lg border border-red-300 dark:border-red-800 bg-background text-base sm:text-sm font-bold text-foreground focus:ring-2 focus:ring-red-600 min-h-[44px]"
               />
 
               <div className="flex items-center justify-end gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => setShowDeleteModal(false)}
-                  className="px-4 py-2 rounded-lg border border-border text-xs font-bold text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  className="px-4 py-2 rounded-lg border border-border text-xs font-bold text-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors min-h-[40px]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={deleting || deleteConfirmText.trim().toUpperCase() !== "DELETE"}
-                  className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-colors disabled:opacity-50 cursor-pointer"
+                  className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-colors disabled:opacity-50 cursor-pointer min-h-[40px]"
                 >
-                  {deleting ? "Deleting..." : "Permanently Delete Account"}
+                  {deleting ? "Erasing..." : "Permanently Delete Account"}
                 </button>
               </div>
             </form>

@@ -7,13 +7,16 @@ import {
   Store,
   ArrowRight,
   ShieldCheck,
-  Smartphone
+  Smartphone,
+  GraduationCap
 } from "lucide-react";
 import { SafetyNotice } from "@/components/common/SafetyNotice";
+import { useReferenceData } from "@/hooks/useReferenceData";
 
 export const Home: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const navigate = useNavigate();
+  const { campuses } = useReferenceData();
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,7 +53,7 @@ export const Home: React.FC = () => {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Search area (e.g. town centre, near campus)..."
-                className="w-full pl-11 pr-4 py-3 rounded-xl bg-surface text-foreground placeholder:text-muted text-sm font-medium border border-border focus:outline-hidden focus:ring-2 focus:ring-accent-500 min-h-[46px]"
+                className="w-full pl-11 pr-4 py-3 rounded-xl bg-surface text-foreground placeholder:text-muted text-base sm:text-sm font-medium border border-border focus:outline-hidden focus:ring-2 focus:ring-accent-500 min-h-[46px]"
               />
             </div>
             <button
@@ -61,6 +64,26 @@ export const Home: React.FC = () => {
               Search Stays
             </button>
           </form>
+
+          {/* 1-Tap Campus Quick-Jump Row */}
+          {campuses.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-slate-300 mr-1">
+                <GraduationCap className="w-3.5 h-3.5 text-amber-400" />
+                Jump to Campus:
+              </span>
+              {campuses.map((campus) => (
+                <Link
+                  key={campus.id}
+                  to={`/accommodation?campus=${campus.id}`}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold text-white transition-colors min-h-[36px]"
+                >
+                  <span>{campus.short_name || campus.name}</span>
+                  <ArrowRight className="w-3 h-3 opacity-80" />
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 

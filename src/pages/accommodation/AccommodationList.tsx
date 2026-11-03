@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   Building2,
@@ -15,17 +15,18 @@ import {
   BatteryCharging,
   AlertTriangle,
   Bookmark,
-  Heart
+  Heart,
+  GraduationCap
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/context/AuthContext";
 import { useReferenceData } from "@/hooks/useReferenceData";
 import { useFavourites } from "@/hooks/useFavourites";
 import { LISTING_TYPES, AMENITIES_VOCABULARY } from "@/lib/constants";
 import { getPublicStorageUrl } from "@/lib/storage";
 import { isStaleConfirmation } from "@/lib/differentiators";
 import { LazyImage } from "@/components/common/LazyImage";
-import { Loading } from "@/components/common/Loading";
 import { Empty } from "@/components/common/Empty";
 import { ErrorState } from "@/components/common/ErrorState";
 import { SafetyNotice } from "@/components/common/SafetyNotice";
@@ -69,6 +70,8 @@ interface SavedFilterData {
   availability?: string;
   minRent?: string;
   maxRent?: string;
+  powerBackup?: boolean;
+  waterBackup?: boolean;
   amenities?: string[];
   sort?: string;
   label: string;
@@ -77,8 +80,10 @@ interface SavedFilterData {
 
 export const AccommodationList: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { profile } = useAuth();
   const { isFavourited, toggleFavourite } = useFavourites();
   const { towns, campuses } = useReferenceData();
+  const appliedDefaultCampusRef = useRef(false);
 
   // Filters from URL query params (default sort: confirmed-recently first)
   const search = searchParams.get("search") || "";
@@ -88,6 +93,8 @@ export const AccommodationList: React.FC = () => {
   const availability = searchParams.get("availability") || "";
   const minRent = searchParams.get("minRent") || "";
   const maxRent = searchParams.get("maxRent") || "";
+  const powerBackup = searchParams.get("power") === "1";
+  const waterBackup = searchParams.get("water") === "1";
   const sort = searchParams.get("sort") || "confirmed";
   const amenitiesKey = searchParams.getAll("amenity").sort().join(",");
   const selectedAmenities = useMemo(
@@ -103,6 +110,20 @@ export const AccommodationList: React.FC = () => {
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [showFiltersModal, setShowFiltersModal] = useState(false);
+
+  // Default to the student's profile campus on initial visit if no URL filters are set
+  useEffect(() => {
+    if (appliedDefaultCampusRef.current) return;
+    if (!profile?.campus_id) return;
+    if (Array.from(searchParams.keys()).length === 0) {
+      appliedDefaultCampusRef.current = true;
+      const next = new URLSearchParams(searchParams);
+      next.set("campus", profile.campus_id);
+      setSearchParams(next, { replace: true });
+    } else {
+      appliedDefaultCampusRef.current = true;
+    }
+  }, [profile?.campus_id, searchParams, setSearchParams]);
 
   // LocalStorage Saved Filters (Phase 7: no server table)
   const [savedFilter, setSavedFilter] = useState<SavedFilterData | null>(() => {
@@ -147,6 +168,7 @@ export const AccommodationList: React.FC = () => {
   };
 
   const handleResetFilters = () => {
+    appliedDefaultCampusRef.current = true;
     setSearchParams(new URLSearchParams(), { replace: true });
     setSearchInput("");
   };
@@ -158,6 +180,8 @@ export const AccommodationList: React.FC = () => {
     if (townId) parts.push(towns.find((t) => t.id === townId)?.name || "Town");
     if (listingType) parts.push(LISTING_TYPES.find((t) => t.value === listingType)?.label || listingType);
     if (maxRent) parts.push(`≤ ZMW ${maxRent}`);
+    if (powerBackup) parts.push("Power Backup");
+    if (waterBackup) parts.push("Water Backup");
     if (search.trim()) parts.push(`"${search.trim()}"`);
 
     const label = parts.length > 0 ? parts.join(" • ") : "All Listings";
@@ -169,6 +193,8 @@ export const AccommodationList: React.FC = () => {
       availability: availability || undefined,
       minRent: minRent || undefined,
       maxRent: maxRent || undefined,
+      powerBackup: powerBackup || undefined,
+      waterBackup: waterBackup || undefined,
       amenities: selectedAmenities.length > 0 ? selectedAmenities : undefined,
       sort: sort !== "confirmed" ? sort : undefined,
       label,
@@ -187,6 +213,7 @@ export const AccommodationList: React.FC = () => {
 
   const handleApplySavedFilter = () => {
     if (!savedFilter) return;
+    appliedDefaultCampusRef.current = true;
     const next = new URLSearchParams();
     if (savedFilter.search) next.set("search", savedFilter.search);
     if (savedFilter.townId) next.set("town", savedFilter.townId);
@@ -195,6 +222,8 @@ export const AccommodationList: React.FC = () => {
     if (savedFilter.availability) next.set("availability", savedFilter.availability);
     if (savedFilter.minRent) next.set("minRent", savedFilter.minRent);
     if (savedFilter.maxRent) next.set("maxRent", savedFilter.maxRent);
+    if (savedFilter.powerBackup) next.set("power", "1");
+    if (savedFilter.waterBackup) next.set("water", "1");
     if (savedFilter.sort) next.set("sort", savedFilter.sort);
     if (savedFilter.amenities) {
       savedFilter.amenities.forEach((a) => next.append("amenity", a));
@@ -250,6 +279,14 @@ export const AccommodationList: React.FC = () => {
         }
         if (minRent) query = query.gte("rent_zmw", parseFloat(minRent));
         if (maxRent) query = query.lte("rent_zmw", parseFloat(maxRent));
+        if (powerBackup) {
+          // Matches either Solar Backup OR Generator Backup
+          query = query.overlaps("amenities", ["solar_backup", "generator"]);
+        }
+        if (waterBackup) {
+          // Matches either Borehole Water OR Reserve Water Tank
+          query = query.overlaps("amenities", ["borehole", "water_tank"]);
+        }
         if (selectedAmenities.length > 0) {
           query = query.contains("amenities", selectedAmenities);
         }
@@ -295,7 +332,19 @@ export const AccommodationList: React.FC = () => {
         setLoadingMore(false);
       }
     },
-    [search, townId, campusId, listingType, availability, minRent, maxRent, sort, selectedAmenities]
+    [
+      search,
+      townId,
+      campusId,
+      listingType,
+      availability,
+      minRent,
+      maxRent,
+      powerBackup,
+      waterBackup,
+      sort,
+      selectedAmenities
+    ]
   );
 
   useEffect(() => {
@@ -310,6 +359,8 @@ export const AccommodationList: React.FC = () => {
     (availability ? 1 : 0) +
     (minRent ? 1 : 0) +
     (maxRent ? 1 : 0) +
+    (powerBackup ? 1 : 0) +
+    (waterBackup ? 1 : 0) +
     selectedAmenities.length;
 
   const formatDaysAgo = (dateStr: string) => {
@@ -321,7 +372,7 @@ export const AccommodationList: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -359,7 +410,7 @@ export const AccommodationList: React.FC = () => {
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search by area or keywords (e.g. town centre, borehole)..."
-            className="w-full pl-9 pr-8 py-2.5 rounded-lg border border-border bg-surface text-sm text-foreground placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+            className="w-full pl-9 pr-8 py-2.5 rounded-lg border border-border bg-surface text-base sm:text-sm text-foreground placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-brand-700 min-h-[44px]"
           />
           {searchInput && (
             <button
@@ -400,7 +451,7 @@ export const AccommodationList: React.FC = () => {
             value={sort}
             onChange={(e) => updateParam("sort", e.target.value)}
             aria-label="Sort listings"
-            className="px-3 py-2.5 rounded-lg border border-border bg-surface text-xs font-bold text-foreground focus:outline-hidden focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+            className="px-3 py-2.5 rounded-lg border border-border bg-surface text-base sm:text-xs font-bold text-foreground focus:outline-hidden focus:ring-2 focus:ring-brand-700 min-h-[44px]"
           >
             <option value="confirmed">Confirmed Recently</option>
             <option value="newest">Newest Listed</option>
@@ -408,6 +459,62 @@ export const AccommodationList: React.FC = () => {
             <option value="rent_desc">Rent: High to Low</option>
           </select>
         </div>
+      </div>
+
+      {/* 1-Tap Quick-Filter Pills: Power Backup, Water Backup, & Campuses */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+        {/* Power Backup Pill (.overlaps(['solar_backup','generator'])) */}
+        <button
+          type="button"
+          onClick={() => updateParam("power", powerBackup ? null : "1")}
+          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full border text-xs font-bold transition-colors shrink-0 min-h-[40px] cursor-pointer ${
+            powerBackup
+              ? "bg-amber-700 border-amber-700 text-white shadow-2xs"
+              : "bg-surface border-border text-foreground hover:bg-amber-50 dark:hover:bg-amber-950/40"
+          }`}
+          title="Filter stays with Solar Backup or Generator"
+        >
+          <Zap className={`w-3.5 h-3.5 ${powerBackup ? "text-amber-200" : "text-amber-600"}`} />
+          <span>Power Backup (Solar / Gen)</span>
+        </button>
+
+        {/* Water Backup Pill (.overlaps(['borehole','water_tank'])) */}
+        <button
+          type="button"
+          onClick={() => updateParam("water", waterBackup ? null : "1")}
+          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full border text-xs font-bold transition-colors shrink-0 min-h-[40px] cursor-pointer ${
+            waterBackup
+              ? "bg-blue-700 border-blue-700 text-white shadow-2xs"
+              : "bg-surface border-border text-foreground hover:bg-blue-50 dark:hover:bg-blue-950/40"
+          }`}
+          title="Filter stays with Borehole or Reserve Water Tank"
+        >
+          <Droplets className={`w-3.5 h-3.5 ${waterBackup ? "text-blue-200" : "text-blue-600"}`} />
+          <span>Water Backup (Borehole / Tank)</span>
+        </button>
+
+        {/* Campus Quick-Switch Pills */}
+        {campuses.map((c) => {
+          const isSelected = campusId === c.id;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => {
+                appliedDefaultCampusRef.current = true;
+                updateParam("campus", isSelected ? null : c.id);
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full border text-xs font-bold transition-colors shrink-0 min-h-[40px] cursor-pointer ${
+                isSelected
+                  ? "bg-brand-700 border-brand-700 text-white shadow-2xs"
+                  : "bg-surface border-border text-muted hover:text-foreground"
+              }`}
+            >
+              <GraduationCap className="w-3.5 h-3.5" />
+              <span>Near {c.short_name || c.name}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Saved Filter Quick Bar (Phase 7: localStorage differentiator) */}
@@ -462,7 +569,13 @@ export const AccommodationList: React.FC = () => {
           {campusId && (
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-brand-100 dark:bg-brand-950 text-brand-800 dark:text-brand-200 text-xs font-semibold">
               Campus: {campuses.find((c) => c.id === campusId)?.short_name || "Campus"}
-              <button type="button" onClick={() => updateParam("campus", null)}>
+              <button
+                type="button"
+                onClick={() => {
+                  appliedDefaultCampusRef.current = true;
+                  updateParam("campus", null);
+                }}
+              >
                 <X className="w-3 h-3" />
               </button>
             </span>
@@ -491,6 +604,22 @@ export const AccommodationList: React.FC = () => {
               </button>
             </span>
           )}
+          {powerBackup && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-200 text-xs font-semibold">
+              Power Backup
+              <button type="button" onClick={() => updateParam("power", null)}>
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+          {waterBackup && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-900 dark:text-blue-200 text-xs font-semibold">
+              Water Backup
+              <button type="button" onClick={() => updateParam("water", null)}>
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
           {selectedAmenities.map((amenity) => (
             <span
               key={amenity}
@@ -513,9 +642,23 @@ export const AccommodationList: React.FC = () => {
         </div>
       )}
 
-      {/* Main Content Area */}
+      {/* Main Content Area: Skeleton Cards while loading */}
       {loading ? (
-        <Loading fullScreen message="Loading accommodation listings..." />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-busy="true">
+          {[1, 2, 3, 4, 5, 6].map((n) => (
+            <div
+              key={n}
+              className="rounded-2xl bg-surface border border-border overflow-hidden animate-pulse"
+            >
+              <div className="aspect-16/10 bg-slate-200 dark:bg-slate-800" />
+              <div className="p-4 space-y-2.5">
+                <div className="h-5 w-1/2 rounded bg-slate-200 dark:bg-slate-800" />
+                <div className="h-4 w-3/4 rounded bg-slate-200 dark:bg-slate-800" />
+                <div className="h-3 w-2/5 rounded bg-slate-200 dark:bg-slate-800" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : error ? (
         <ErrorState message={error} onRetry={() => fetchListings(0, true)} />
       ) : listings.length === 0 ? (
@@ -573,7 +716,7 @@ export const AccommodationList: React.FC = () => {
                       {/* Availability & Freshness Tags */}
                       <div className="absolute top-2.5 right-2.5 flex flex-col items-end gap-1">
                         {item.availability === "available" ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-bold shadow-xs">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-700 text-white text-[10px] font-bold shadow-xs">
                             <CheckCircle2 className="w-3 h-3" /> Available
                           </span>
                         ) : (
@@ -617,14 +760,16 @@ export const AccommodationList: React.FC = () => {
 
                       {/* Key Amenities Badges */}
                       <div className="flex flex-wrap gap-1 pt-1">
-                        {item.amenities.includes("solar_backup") && (
+                        {(item.amenities.includes("solar_backup") || item.amenities.includes("generator")) && (
                           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 text-[10px] font-semibold">
-                            <Zap className="w-3 h-3 text-amber-600" /> Solar
+                            <Zap className="w-3 h-3 text-amber-600" />{" "}
+                            {item.amenities.includes("solar_backup") ? "Solar" : "Generator"}
                           </span>
                         )}
-                        {item.amenities.includes("borehole") && (
+                        {(item.amenities.includes("borehole") || item.amenities.includes("water_tank")) && (
                           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-200 text-[10px] font-semibold">
-                            <Droplets className="w-3 h-3 text-blue-600" /> Borehole
+                            <Droplets className="w-3 h-3 text-blue-600" />{" "}
+                            {item.amenities.includes("borehole") ? "Borehole" : "Water Tank"}
                           </span>
                         )}
                         {item.amenities.includes("prepaid_electricity") && (
@@ -694,8 +839,11 @@ export const AccommodationList: React.FC = () => {
               <select
                 id="filter-campus"
                 value={campusId}
-                onChange={(e) => updateParam("campus", e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+                onChange={(e) => {
+                  appliedDefaultCampusRef.current = true;
+                  updateParam("campus", e.target.value);
+                }}
+                className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
               >
                 <option value="">All Campuses</option>
                 {campuses.map((c) => (
@@ -715,7 +863,7 @@ export const AccommodationList: React.FC = () => {
                 id="filter-town"
                 value={townId}
                 onChange={(e) => updateParam("town", e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+                className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
               >
                 <option value="">All Towns</option>
                 {towns.map((t) => (
@@ -735,7 +883,7 @@ export const AccommodationList: React.FC = () => {
                 id="filter-type"
                 value={listingType}
                 onChange={(e) => updateParam("type", e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+                className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground focus:ring-2 focus:ring-brand-700 min-h-[44px]"
               >
                 <option value="">Any Type</option>
                 {LISTING_TYPES.map((t) => (
@@ -752,17 +900,19 @@ export const AccommodationList: React.FC = () => {
               <div className="grid grid-cols-2 gap-2">
                 <input aria-label="Minimum monthly rent in ZMW"
                   type="number"
+                  inputMode="numeric"
                   placeholder="Min ZMW (e.g. 800)"
                   value={minRent}
                   onChange={(e) => updateParam("minRent", e.target.value)}
-                  className="px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground min-h-[44px]"
+                  className="px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
                 />
                 <input aria-label="Maximum monthly rent in ZMW"
                   type="number"
+                  inputMode="numeric"
                   placeholder="Max ZMW (e.g. 2500)"
                   value={maxRent}
                   onChange={(e) => updateParam("maxRent", e.target.value)}
-                  className="px-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground min-h-[44px]"
+                  className="px-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
                 />
               </div>
             </div>

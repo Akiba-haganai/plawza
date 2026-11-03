@@ -19,7 +19,10 @@ import {
   Info,
   Share2,
   Calculator,
-  AlertTriangle
+  AlertTriangle,
+  QrCode,
+  UserCheck,
+  ExternalLink
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
@@ -27,6 +30,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useFavourites } from "@/hooks/useFavourites";
 import { whatsAppUrl } from "@/lib/phone";
 import { getPublicStorageUrl } from "@/lib/storage";
+import { downloadNoticeboardFlyer } from "@/lib/flyerGenerator";
 import { LISTING_TYPES, AMENITIES_VOCABULARY, UTILITIES_VOCABULARY, REPORT_REASONS } from "@/lib/constants";
 import {
   isStaleConfirmation,
@@ -69,7 +73,7 @@ interface ListingDetail {
 
 export const AccommodationDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { isFavourited, toggleFavourite } = useFavourites();
 
   const [listing, setListing] = useState<ListingDetail | null>(null);
@@ -79,9 +83,14 @@ export const AccommodationDetail: React.FC = () => {
   // Moderation verification badge status
   const [isModeratorReviewed, setIsModeratorReviewed] = useState(false);
 
-  // Favourite status
-  const [isFavourite, setIsFavourite] = useState(false);
-  const [favouriteLoading, setFavouriteLoading] = useState(false);
+  // Host summary (from public-safe security definer RPC)
+  const [hostSummary, setHostSummary] = useState<{
+    id: string;
+    full_name: string;
+    avatar_url: string | null;
+    created_at: string;
+    is_verified: boolean;
+  } | null>(null);
 
   // Revealed contact phone
   const [revealedPhone, setRevealedPhone] = useState<{ phone: string; whatsapp_phone: string | null } | null>(null);
@@ -95,6 +104,16 @@ export const AccommodationDetail: React.FC = () => {
   const [enquirySubmitting, setEnquirySubmitting] = useState(false);
   const [enquirySuccess, setEnquirySuccess] = useState(false);
   const [enquiryCooldownSeconds, setEnquiryCooldownSeconds] = useState(0);
+
+  // Prefill viewing form from signed-in user's profile
+  useEffect(() => {
+    if (profile?.full_name) {
+      setRequesterName((prev) => prev || profile.full_name || "");
+    }
+    if (profile?.phone) {
+      setRequesterPhone((prev) => prev || profile.phone || "");
+    }
+  }, [profile?.full_name, profile?.phone]);
 
   // Monitor enquiry cooldown for this listing
   useEffect(() => {
@@ -138,8 +157,8 @@ export const AccommodationDetail: React.FC = () => {
       setError(null);
 
       try {
-        // Single parallel round-trip: join town, campus, and images directly, and run verifications + favourites in parallel
-        const [listingRes, verifRes, favRes] = await Promise.all([
+        // Single parallel round-trip: join town, campus, and images directly, and run verifications + host summary in parallel
+        const [listingRes, verifRes, hostRes] = await Promise.all([
           supabase
             .from("accommodation_listings")
             .select(
@@ -162,14 +181,7 @@ export const AccommodationDetail: React.FC = () => {
             .eq("check_type", "moderator_reviewed")
             .is("revoked_at", null)
             .maybeSingle(),
-          user
-            ? supabase
-                .from("favourites")
-                .select("id")
-                .eq("user_id", user.id)
-                .eq("listing_id", listingId)
-                .maybeSingle()
-            : Promise.resolve({ data: null })
+          supabase.rpc("get_host_summary", { p_listing_id: listingId })
         ]);
 
         if (listingRes.error) throw listingRes.error;
@@ -181,7 +193,17 @@ export const AccommodationDetail: React.FC = () => {
         const typedListing = listingRes.data as unknown as ListingDetail;
         setListing(typedListing);
         setIsModeratorReviewed(Boolean(verifRes.data));
-        setIsFavourite(Boolean(favRes.data));
+        if (hostRes.data && typeof hostRes.data === "object") {
+          setHostSummary(
+            hostRes.data as {
+              id: string;
+              full_name: string;
+              avatar_url: string | null;
+              created_at: string;
+              is_verified: boolean;
+            }
+          );
+        }
       } catch (err) {
         console.error("Failed to load listing details:", err);
         setError("Error loading property details.");
@@ -192,34 +214,6 @@ export const AccommodationDetail: React.FC = () => {
 
     loadListing();
   }, [id, user]);
-
-  // Toggle Favourite
-  const handleToggleFavourite = async () => {
-    if (!user) {
-      toast.info("Please sign in to save favourites.");
-      return;
-    }
-    if (!id || !listing || favouriteLoading) return;
-    const listingId: string = id;
-
-    setFavouriteLoading(true);
-    try {
-      if (isFavourite) {
-        await supabase.from("favourites").delete().eq("user_id", user.id).eq("listing_id", listingId);
-        setIsFavourite(false);
-        toast.success("Removed from favourites");
-      } else {
-        await supabase.from("favourites").insert({ user_id: user.id, listing_id: listingId });
-        setIsFavourite(true);
-        toast.success("Saved to favourites");
-      }
-    } catch (err) {
-      console.error("Error updating favourite:", err);
-      toast.error("Failed to update favourite");
-    } finally {
-      setFavouriteLoading(false);
-    }
-  };
 
   // Reveal Contact details via RPC
   const handleRevealContact = async () => {
@@ -263,7 +257,8 @@ export const AccommodationDetail: React.FC = () => {
     if (!id || !listing) return;
     const listingId: string = id;
 
-    if (listing.owner_id && user.id === listing.owner_id) {
+    const ownerId = listing.owner_id || hostSummary?.id;
+    if (ownerId && user.id === ownerId) {
       toast.error("You cannot send an enquiry to your own property.");
       return;
     }
@@ -283,7 +278,7 @@ export const AccommodationDetail: React.FC = () => {
       const { error: err } = await supabase.from("accommodation_enquiries").insert({
         listing_id: listingId,
         requester_id: user.id,
-        owner_id: listing.owner_id || user.id,
+        owner_id: ownerId || user.id,
         requester_name: requesterName.trim(),
         requester_phone: requesterPhone.trim() || null,
         message: viewingMessage.trim() || null,
@@ -386,24 +381,8 @@ export const AccommodationDetail: React.FC = () => {
           <ArrowLeft className="w-4 h-4" /> Back to Accommodation
         </Link>
 
-        <div className="flex items-center gap-2">
-          {/* Favourite Button */}
-          <button
-            type="button"
-            onClick={handleToggleFavourite}
-            disabled={favouriteLoading}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-bold transition-colors min-h-[44px] ${
-              isFavourite
-                ? "bg-rose-50 border-rose-200 text-rose-600 dark:bg-rose-950/60 dark:border-rose-900"
-                : "bg-surface border-border text-muted hover:text-foreground"
-            }`}
-            aria-label="Save to favourites"
-          >
-            <Heart className={`w-4 h-4 ${isFavourite ? "fill-rose-600 text-rose-600" : ""}`} />
-            <span>{isFavourite ? "Saved" : "Save"}</span>
-          </button>
-
-          {/* WhatsApp Share Button (Phase 7 differentiator) */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Single Save to Favourites Button */}
           <button
             type="button"
             onClick={() => listing && toggleFavourite("listing", listing.id)}
@@ -416,6 +395,40 @@ export const AccommodationDetail: React.FC = () => {
           >
             <Heart className={`w-4 h-4 ${listing && isFavourited("listing", listing.id) ? "fill-rose-500 text-rose-500" : ""}`} />
             <span>{listing && isFavourited("listing", listing.id) ? "Saved" : "Save"}</span>
+          </button>
+
+          {/* Noticeboard Flyer & QR Poster Button */}
+          <button
+            type="button"
+            onClick={() => {
+              const typeLabel =
+                LISTING_TYPES.find((t) => t.value === listing.listing_type)?.label || listing.listing_type;
+              const badgeLabels = [
+                typeLabel,
+                ...(listing.amenities || [])
+                  .slice(0, 3)
+                  .map((a) => AMENITIES_VOCABULARY.find((v) => v.value === a)?.label || a)
+              ];
+              downloadNoticeboardFlyer({
+                kind: "listing",
+                title: listing.title,
+                subtitle: `ZMW ${listing.rent_zmw.toLocaleString()} / month`,
+                locationText: `${listing.area}${listing.town?.name ? `, ${listing.town.name}` : ""}${
+                  listing.campus?.short_name || listing.campus?.name
+                    ? ` • Near ${listing.campus.short_name || listing.campus.name}`
+                    : ""
+                }`,
+                badges: badgeLabels,
+                path: `/accommodation/${listing.id}`,
+                filename: `plawza-flyer-${listing.id.slice(0, 8)}.png`
+              });
+              toast.success("Downloaded noticeboard & WhatsApp status flyer!");
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-surface hover:bg-slate-100 text-xs font-bold text-foreground transition-colors min-h-[44px] cursor-pointer"
+            title="Download Noticeboard Flyer & QR Card"
+          >
+            <QrCode className="w-4 h-4 text-brand-700" />
+            <span>Flyer / QR</span>
           </button>
 
           <a
@@ -679,12 +692,13 @@ export const AccommodationDetail: React.FC = () => {
                   </span>
                   <input aria-label="Estimated shared utilities in ZMW per month"
                     type="number"
+                    inputMode="numeric"
                     min="0"
                     step="50"
                     value={splitUtilities}
                     onChange={(e) => setSplitUtilities(e.target.value)}
                     placeholder="e.g. 400 (power, water, wifi)"
-                    className="w-full pl-12 pr-3 py-2 rounded-lg border border-border bg-background text-xs text-foreground focus:ring-1 focus:ring-brand-700 min-h-[44px]"
+                    className="w-full pl-12 pr-3 py-2 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground focus:ring-1 focus:ring-brand-700 min-h-[44px]"
                   />
                 </div>
               </div>
@@ -731,6 +745,47 @@ export const AccommodationDetail: React.FC = () => {
               )}
             </div>
 
+            {/* Listed By Host Summary Card */}
+            {hostSummary && (
+              <div className="pt-3 border-t border-border">
+                <span className="text-[11px] font-bold text-muted uppercase tracking-wider block mb-2">
+                  Listed By
+                </span>
+                <Link
+                  to={`/u/${hostSummary.id}`}
+                  className="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-border hover:border-brand-600 transition-colors group"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-brand-700 text-white font-black text-xs flex items-center justify-center overflow-hidden shrink-0">
+                      {hostSummary.avatar_url ? (
+                        <img
+                          src={getPublicStorageUrl("avatars", hostSummary.avatar_url)}
+                          alt={hostSummary.full_name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        (hostSummary.full_name || "M").slice(0, 2).toUpperCase()
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-foreground truncate group-hover:text-brand-700 dark:group-hover:text-brand-300">
+                          {hostSummary.full_name}
+                        </span>
+                        {hostSummary.is_verified && (
+                          <UserCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        )}
+                      </div>
+                      <span className="text-[11px] text-muted block">
+                        Member since {new Date(hostSummary.created_at).getFullYear()} • View all listings
+                      </span>
+                    </div>
+                  </div>
+                  <ExternalLink className="w-4 h-4 text-muted group-hover:text-brand-700 shrink-0" />
+                </Link>
+              </div>
+            )}
+
             <div className="pt-3 border-t border-border space-y-3">
               {/* Landlord Contact Section */}
               <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">Landlord Contact</h3>
@@ -750,7 +805,7 @@ export const AccommodationDetail: React.FC = () => {
                         href={whatsAppUrl(revealedPhone.whatsapp_phone, `Hi, I saw your listing "${listing.title}" on Plawza. Is it still available?`)!}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center justify-center gap-2 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors min-h-[44px]"
+                        className="inline-flex items-center justify-center gap-2 py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-xs transition-colors min-h-[44px]"
                       >
                         <MessageCircle className="w-4 h-4" /> Message on WhatsApp
                       </a>
@@ -813,7 +868,7 @@ export const AccommodationDetail: React.FC = () => {
                       value={requesterName}
                       onChange={(e) => setRequesterName(e.target.value)}
                       placeholder="e.g. Chanda Mwewa"
-                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-xs text-foreground min-h-[44px]"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
                     />
                   </div>
 
@@ -827,7 +882,7 @@ export const AccommodationDetail: React.FC = () => {
                       value={requesterPhone}
                       onChange={(e) => setRequesterPhone(e.target.value)}
                       placeholder="e.g. 0971234567"
-                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-xs text-foreground min-h-[44px]"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
                     />
                   </div>
 
@@ -840,7 +895,7 @@ export const AccommodationDetail: React.FC = () => {
                       type="datetime-local"
                       value={viewingDate}
                       onChange={(e) => setViewingDate(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-xs text-foreground min-h-[44px]"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground min-h-[44px]"
                     />
                   </div>
 
@@ -854,7 +909,7 @@ export const AccommodationDetail: React.FC = () => {
                       value={viewingMessage}
                       onChange={(e) => setViewingMessage(e.target.value)}
                       placeholder="e.g. I am a 2nd year student looking to move in next month..."
-                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-xs text-foreground resize-none"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground resize-none"
                     />
                   </div>
 

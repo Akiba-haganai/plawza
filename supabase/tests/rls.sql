@@ -418,8 +418,81 @@ begin
   end if;
 
   -- -------------------------------------------------------------------
+  -- Test 13: moderate_content successfully approves a pending listing
+  --          (satisfies verifications_note_required and notifies owner)
+  -- -------------------------------------------------------------------
+  update public.accommodation_listings set status = 'pending' where id = v_listing_id;
+
+  execute 'set local role authenticated';
+  perform set_config('request.jwt.claims', format('{"sub":"%s"}', v_admin), true);
+  perform public.moderate_content('listing', v_listing_id, 'approve', 'Verified photos and area');
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+
+  select status into v_status from public.accommodation_listings where id = v_listing_id;
+  select count(*) into v_count
+  from public.verifications
+  where listing_id = v_listing_id and check_type = 'moderator_reviewed' and revoked_at is null;
+
+  if v_status = 'active' and v_count = 1 then
+    insert into rls_test_results (test_name, status, detail)
+    values ('13. moderate_content approves pending listing with verification note', 'PASS', 'Status=active and moderator_reviewed row created with valid note');
+  else
+    insert into rls_test_results (test_name, status, detail)
+    values ('13. moderate_content approves pending listing with verification note', 'FAIL', format('status=%s, verifications=%s', v_status, v_count));
+  end if;
+
+  -- -------------------------------------------------------------------
+  -- Test 14: Two-way enquiry status notification & notifications RLS
+  -- -------------------------------------------------------------------
+  execute 'set local role authenticated';
+  perform set_config('request.jwt.claims', format('{"sub":"%s"}', v_user_a), true);
+  update public.accommodation_enquiries set status = 'contacted' where id = v_enquiry_id;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+
+  -- Requester (User B) sees the notification
+  execute 'set local role authenticated';
+  perform set_config('request.jwt.claims', format('{"sub":"%s"}', v_user_b), true);
+  select count(*) into v_count from public.notifications where user_id = v_user_b and type = 'enquiry';
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+
+  -- Stranger (User C) cannot read User B's notifications
+  execute 'set local role authenticated';
+  perform set_config('request.jwt.claims', format('{"sub":"%s"}', v_user_c), true);
+  select count(*) into v_stranger_count from public.notifications where user_id = v_user_b;
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+
+  if v_count >= 1 and v_stranger_count = 0 then
+    insert into rls_test_results (test_name, status, detail)
+    values ('14. Two-way enquiry notification & notifications RLS', 'PASS', format('Requester notified (count=%s), stranger blocked (count=0)', v_count));
+  else
+    insert into rls_test_results (test_name, status, detail)
+    values ('14. Two-way enquiry notification & notifications RLS', 'FAIL', format('requester_notifs=%s, stranger_notifs=%s', v_count, v_stranger_count));
+  end if;
+
+  -- -------------------------------------------------------------------
+  -- Test 15: get_public_member_profile works for anon without leaking phone
+  -- -------------------------------------------------------------------
+  execute 'set local role anon';
+  select (public.get_public_member_profile(v_user_a)->>'phone') into v_phone;
+  select (public.get_public_member_profile(v_user_a)->'profile'->>'full_name') into v_msg;
+  reset role;
+
+  if v_msg = 'User A (Owner)' and v_phone is null then
+    insert into rls_test_results (test_name, status, detail)
+    values ('15. get_public_member_profile works for anon & hides phone', 'PASS', 'Returned public profile name and active listings with no phone field');
+  else
+    insert into rls_test_results (test_name, status, detail)
+    values ('15. get_public_member_profile works for anon & hides phone', 'FAIL', format('name=%s, leaked_phone=%s', v_msg, v_phone));
+  end if;
+
+  -- -------------------------------------------------------------------
   -- Cleanup test records (strictly respect foreign key constraints)
   -- -------------------------------------------------------------------
+  delete from public.notifications where user_id in (v_user_a, v_user_b, v_user_c, v_admin);
   delete from public.moderation_actions where actor_id in (v_user_a, v_user_b, v_user_c, v_admin);
   delete from public.verifications where checked_by in (v_user_a, v_user_b, v_user_c, v_admin);
   delete from public.accommodation_listings where owner_id in (v_user_a, v_user_b, v_user_c, v_admin);

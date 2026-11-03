@@ -19,6 +19,7 @@ export const Register: React.FC = () => {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [termsHighlight, setTermsHighlight] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -57,6 +58,14 @@ export const Register: React.FC = () => {
   const handleGoogleSignIn = async () => {
     if (loading || googleLoading) return;
     setErrorMessage(null);
+
+    if (!agreedToTerms) {
+      setTermsHighlight(true);
+      setErrorMessage("Please agree to the Terms of Service and Privacy Policy before creating an account.");
+      toast.error("Please accept the Terms of Service and Privacy Policy first.");
+      return;
+    }
+
     setGoogleLoading(true);
     try {
       const { error } = await signInWithGoogle(redirectPath);
@@ -73,6 +82,12 @@ export const Register: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+
+    if (!agreedToTerms) {
+      setTermsHighlight(true);
+      setErrorMessage("Please agree to the Terms of Service and Privacy Policy.");
+      return;
+    }
 
     if (!email.trim() || !password) {
       setErrorMessage("Please enter both email and password.");
@@ -171,7 +186,7 @@ export const Register: React.FC = () => {
               type="button"
               onClick={handleResendConfirmation}
               disabled={resending || cooldownRemaining > 0}
-              className="w-full py-2.5 px-4 rounded-lg bg-brand-700 hover:bg-brand-900 text-white font-bold text-xs shadow-xs transition-colors flex items-center justify-center gap-1.5 min-h-[42px] disabled:opacity-50 cursor-pointer"
+              className="w-full py-2.5 px-4 rounded-lg bg-brand-700 hover:bg-brand-900 text-white font-bold text-xs shadow-xs transition-colors flex items-center justify-center gap-1.5 min-h-[44px] disabled:opacity-50 cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${resending ? "animate-spin" : ""}`} />
               {cooldownRemaining > 0
@@ -184,7 +199,7 @@ export const Register: React.FC = () => {
             <button
               type="button"
               onClick={() => setConfirmationState("idle")}
-              className="w-full py-2 px-3 rounded-lg border border-border bg-surface text-xs font-semibold text-muted hover:text-foreground transition-colors min-h-[38px] cursor-pointer"
+              className="w-full py-2 px-3 rounded-lg border border-border bg-surface text-xs font-semibold text-muted hover:text-foreground transition-colors min-h-[40px] cursor-pointer"
             >
               Entered the wrong email? Go back
             </button>
@@ -216,6 +231,41 @@ export const Register: React.FC = () => {
               <span>{errorMessage}</span>
             </div>
           )}
+
+          {/* Terms & Privacy Consent (applies to both Google & Email sign-up) */}
+          <div
+            className={`mb-4 p-3 rounded-xl border transition-colors flex items-start gap-2.5 ${
+              termsHighlight && !agreedToTerms
+                ? "border-red-400 bg-red-50/50 dark:border-red-800 dark:bg-red-950/30"
+                : "border-border bg-slate-50/60 dark:bg-slate-900/40"
+            }`}
+          >
+            <input
+              id="register-terms"
+              type="checkbox"
+              required
+              checked={agreedToTerms}
+              onChange={(e) => {
+                setAgreedToTerms(e.target.checked);
+                if (e.target.checked) {
+                  setTermsHighlight(false);
+                  setErrorMessage(null);
+                }
+              }}
+              className="mt-0.5 w-4 h-4 rounded border-border text-brand-700 focus:ring-brand-700 cursor-pointer shrink-0"
+            />
+            <label htmlFor="register-terms" className="text-xs text-muted leading-relaxed cursor-pointer">
+              I agree to the{" "}
+              <Link to="/terms" target="_blank" className="font-semibold text-brand-700 dark:text-brand-300 hover:underline">
+                Terms of Service
+              </Link>{" "}
+              and{" "}
+              <Link to="/privacy" target="_blank" className="font-semibold text-brand-700 dark:text-brand-300 hover:underline">
+                Privacy Policy
+              </Link>
+              , and confirm I am 18 years or older (or have guardian consent).
+            </label>
+          </div>
 
           <button
             type="button"
@@ -267,7 +317,7 @@ export const Register: React.FC = () => {
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="e.g. Mwamba Mwape"
-                  className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-brand-700 min-h-[44px]"
                 />
               </div>
             </div>
@@ -286,7 +336,7 @@ export const Register: React.FC = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="e.g. you@example.com"
-                  className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+                  className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-brand-700 min-h-[44px]"
                 />
               </div>
             </div>
@@ -306,7 +356,7 @@ export const Register: React.FC = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-9 pr-11 py-2.5 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-brand-700 min-h-[44px]"
+                  className="w-full pl-9 pr-11 py-2.5 rounded-lg border border-border bg-background text-base sm:text-sm text-foreground placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-brand-700 min-h-[44px]"
                 />
                 <button
                   type="button"
@@ -318,28 +368,6 @@ export const Register: React.FC = () => {
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-            </div>
-
-            <div className="flex items-start gap-2.5 pt-1">
-              <input
-                id="register-terms"
-                type="checkbox"
-                required
-                checked={agreedToTerms}
-                onChange={(e) => setAgreedToTerms(e.target.checked)}
-                className="mt-1 w-4 h-4 rounded border-border text-brand-700 focus:ring-brand-700"
-              />
-              <label htmlFor="register-terms" className="text-xs text-muted leading-relaxed">
-                I agree to the{" "}
-                <Link to="/terms" target="_blank" className="font-semibold text-brand-700 dark:text-brand-300 hover:underline">
-                  Terms of Service
-                </Link>{" "}
-                and{" "}
-                <Link to="/privacy" target="_blank" className="font-semibold text-brand-700 dark:text-brand-300 hover:underline">
-                  Privacy Policy
-                </Link>
-                , and confirm I am 18 years or older (or have guardian consent).
-              </label>
             </div>
 
             <button

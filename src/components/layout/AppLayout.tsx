@@ -28,27 +28,12 @@ export const AppLayout: React.FC = () => {
   const { isDark, toggleTheme } = useThemeStore();
   const location = useLocation();
 
-  const primaryNavItems = [
+  const navItems = [
     { label: "Home", to: "/", icon: Home, exact: true },
-    { label: "Stays", to: "/accommodation", icon: Building2, exact: false }
-  ];
-
-  const secondaryNavItems = [
+    { label: "Stays", to: "/accommodation", icon: Building2, exact: false },
     { label: "Roommates", to: "/roommates", icon: Users, exact: false },
     { label: "Shops", to: "/shops", icon: Store, exact: false }
   ];
-
-  // Dynamic context-aware post route: if already on roommates/shops, route to their creation
-  const postRoute = location.pathname.startsWith("/roommates")
-    ? "/dashboard/roommates"
-    : location.pathname.startsWith("/shops")
-      ? "/dashboard/businesses"
-      : "/dashboard/accommodation";
-
-  const isPostActive =
-    location.pathname.startsWith("/dashboard/accommodation") ||
-    location.pathname.startsWith("/dashboard/roommates") ||
-    location.pathname.startsWith("/dashboard/businesses");
 
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:pb-0">
@@ -201,7 +186,7 @@ export const AppLayout: React.FC = () => {
             <div className="space-y-2 max-w-sm">
               <BrandLogo variant="full" size="sm" theme={isDark ? "white" : "color"} showTagline={true} />
               <p className="text-xs text-muted leading-relaxed">
-                The open digital plaza for Zambia. Discover verified accommodation, find trusted roommates, and explore local campus businesses.
+                The open digital plaza for Zambia. Discover verified accommodation, find trusted roommates, and explore local shops and businesses.
               </p>
             </div>
 
@@ -252,12 +237,12 @@ export const AppLayout: React.FC = () => {
         </div>
       </footer>
 
-      {/* Mobile Bottom Navigation Bar (Fixed 360px+ touch-optimized) */}
+      {/* Mobile Bottom Navigation Bar (4-tab touch-optimized) */}
       <nav
         aria-label="Mobile Navigation"
         className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface/98 border-t border-border backdrop-blur-md px-1 pt-1 pb-[max(0.35rem,env(safe-area-inset-bottom))] flex items-center justify-between shadow-lg"
       >
-        {primaryNavItems.map((item) => {
+        {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = item.exact
             ? location.pathname === item.to
@@ -276,57 +261,7 @@ export const AppLayout: React.FC = () => {
               {isActive && (
                 <span className="absolute top-0 w-8 h-0.5 rounded-full bg-brand-700 dark:bg-brand-400" />
               )}
-              <Icon className={`w-5 h-5 mb-0.5 ${isActive ? "stroke-[2.5]" : "stroke-[1.75]"}`} />
-              <span className="text-[10px] leading-tight tracking-tight">{item.label}</span>
-            </NavLink>
-          );
-        })}
 
-        {/* Center Post (+) Action Button */}
-        <NavLink
-          to={user ? postRoute : `/login?redirect=${encodeURIComponent(postRoute)}`}
-          className="flex-1 flex flex-col items-center justify-center -mt-3.5 group relative py-1 focus:outline-hidden"
-          aria-label="Post listing or catalogue"
-        >
-          <div
-            className={`w-11 h-11 rounded-full text-white shadow-md flex items-center justify-center border-2 border-surface transition-transform group-active:scale-95 ${
-              isPostActive
-                ? "bg-accent-600 ring-2 ring-accent-400"
-                : "bg-accent-700 hover:bg-accent-600"
-            }`}
-          >
-            <Plus className="w-5 h-5 stroke-[2.75]" />
-          </div>
-          <span
-            className={`text-[10px] leading-tight tracking-tight font-bold mt-0.5 ${
-              isPostActive
-                ? "text-accent-700 dark:text-accent-300 font-black"
-                : "text-accent-700 dark:text-accent-400"
-            }`}
-          >
-            Post
-          </span>
-        </NavLink>
-
-        {secondaryNavItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = item.exact
-            ? location.pathname === item.to
-            : location.pathname.startsWith(item.to);
-
-          return (
-            <NavLink
-              key={item.label}
-              to={item.to}
-              className={`flex-1 flex flex-col items-center justify-center py-1.5 min-h-[48px] rounded-xl relative transition-all ${
-                isActive
-                  ? "text-brand-700 dark:text-brand-200 font-bold bg-brand-50/70 dark:bg-brand-950/40"
-                  : "text-muted hover:text-foreground font-medium"
-              }`}
-            >
-              {isActive && (
-                <span className="absolute top-0 w-8 h-0.5 rounded-full bg-brand-700 dark:bg-brand-400" />
-              )}
               <Icon className={`w-5 h-5 mb-0.5 ${isActive ? "stroke-[2.5]" : "stroke-[1.75]"}`} />
               <span className="text-[10px] leading-tight tracking-tight">{item.label}</span>
             </NavLink>

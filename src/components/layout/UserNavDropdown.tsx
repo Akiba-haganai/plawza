@@ -49,7 +49,7 @@ export const UserNavDropdown: React.FC = () => {
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className="flex items-center gap-2 p-1 pl-1.5 pr-2 rounded-full border border-border bg-surface hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer group"
+        className="flex items-center gap-2 p-1 pl-1.5 pr-2 rounded-full border border-border bg-surface hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer group min-h-[44px]"
         aria-label="User account menu"
       >
         <Avatar src={avatarSource} name={displayName} size="sm" showBorder />

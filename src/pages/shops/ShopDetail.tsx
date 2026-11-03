@@ -710,7 +710,7 @@ export const ShopDetail: React.FC = () => {
 
       {/* Sticky WhatsApp Order Basket Summary Bar */}
       {totalBasketCount > 0 && (
-        <div className="fixed bottom-4 left-4 right-4 z-40 max-w-3xl mx-auto">
+        <div className="fixed bottom-20 md:bottom-4 left-4 right-4 z-40 max-w-3xl mx-auto">
           <div className="p-4 rounded-2xl bg-slate-900 text-white border border-slate-700 shadow-2xl space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-start gap-3">

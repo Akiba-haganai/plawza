@@ -1,8 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 
-const supabaseUrl: string | undefined = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey: string | undefined = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const metaEnv = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+const supabaseUrl: string | undefined = metaEnv?.VITE_SUPABASE_URL;
+const supabaseAnonKey: string | undefined = metaEnv?.VITE_SUPABASE_ANON_KEY;
 
 /** Canonical production web URL on Cloudflare Workers */
 export const PRODUCTION_SITE_URL = "https://plawza.akiba-hara.workers.dev";
@@ -18,7 +19,7 @@ export function getAuthRedirectUrl(path = "/dashboard"): string {
   if (typeof window === "undefined") {
     return `${PRODUCTION_SITE_URL}${cleanPath}`;
   }
-  const configuredSiteUrl = import.meta.env.VITE_SITE_URL as string | undefined;
+  const configuredSiteUrl = metaEnv?.VITE_SITE_URL;
   const origin =
     configuredSiteUrl && /^https?:\/\//.test(configuredSiteUrl)
       ? configuredSiteUrl.replace(/\/+$/, "")

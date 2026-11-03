@@ -2,10 +2,10 @@ import {
   buildListingOgMetadata,
   buildShopOgMetadata,
   injectOgTagsIntoHtml,
+  PRODUCTION_SITE_URL,
   type ListingOgSource,
   type ShopOgSource
 } from "../src/lib/ogPreview";
-import { PRODUCTION_SITE_URL } from "../src/lib/supabase";
 
 export interface AssetFetcher {
   fetch(input: Request | string, init?: RequestInit): Promise<Response>;

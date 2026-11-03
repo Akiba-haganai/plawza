@@ -1,5 +1,5 @@
-import { PRODUCTION_SITE_URL } from "./supabase";
-export { PRODUCTION_SITE_URL };
+/** Canonical production web URL on Cloudflare Workers */
+export const PRODUCTION_SITE_URL = "https://plawza.akiba-hara.workers.dev";
 
 export interface OgMetadata {
   title: string;
